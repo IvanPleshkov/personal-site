@@ -3,47 +3,419 @@ import BaseHead from '../components/BaseHead.astro';
 import Footer from '../components/Footer.astro';
 import Header from '../components/Header.astro';
 import { SOCIAL_LINKS } from '../consts';
+
+const experience = [
+	{
+		role: 'Software Engineer',
+		company: 'Qdrant',
+		companyUrl: 'https://qdrant.tech/',
+		period: '2022 — present',
+		stack: 'Rust',
+		summary:
+			'Core team on the open-source vector search engine. Built the GPU-accelerated HNSW indexing feature shipped in Qdrant 1.13 — bringing real-time-graphics techniques into approximate nearest neighbor search.',
+	},
+	{
+		role: 'C++ Developer',
+		company: 'ScienceSoft',
+		period: '2019 — 2022',
+		stack: 'C++',
+		summary:
+			'Cross-platform infrastructure for a Skype-like video conferencing app (Android, iOS, Windows, macOS, Linux). RPC over djinni, boost-based filesystem and HTTP client, distributed unit tests, crash reporting, log libraries.',
+	},
+	{
+		role: 'Render Developer',
+		company: 'Wargaming',
+		period: '2017 — 2019',
+		stack: 'C++ · graphics',
+		summary:
+			'Graphics-engine internals: texture and mesh streaming caches, terrain decals, LOD improvements, vehicle customization shaders, GPU-simulated ropes (compute shaders), particle instancing.',
+	},
+	{
+		role: 'C++ Developer',
+		company: 'Eagle Dynamics',
+		period: '2015 — 2017',
+		stack: 'C++ · VR · CV',
+		summary:
+			'Virtual reality system for flight simulators (DCS World). Computer-vision algorithms compensating for spherical aberration. Domain-specific graphics engine for QR-code rendering. Plugins, admin panel on C# / WinForms.',
+	},
+	{
+		role: 'Delphi Developer',
+		company: 'ACD/Labs',
+		period: '2013 — 2014',
+		stack: 'Delphi',
+		summary:
+			'Spectroscopy, spectrometry, and chromatography software. Crash-report investigation, support for new 1D/2D spectrum formats from Magritek hardware spectrometers.',
+	},
+];
+
+const projects = [
+	{
+		name: 'RedLilium',
+		blurb: 'A custom game and graphics engine written in Rust. Native and WebAssembly builds, ECS, modular crates.',
+		stack: 'Rust · WebAssembly',
+		url: 'https://github.com/IvanPleshkov/RedLilium',
+	},
+];
+
+const talks = [
+	{
+		title: 'GPU-Accelerated HNSW Vector Indexing',
+		venue: 'Vector Space Talks #023',
+		url: 'https://www.youtube.com/watch?v=HkVhWvaUfoQ',
+	},
+];
 ---
 
 <!doctype html>
 <html lang="en">
 	<head>
-		<BaseHead title="About — Ivan Pleshkov" description="About Ivan Pleshkov." />
+		<BaseHead
+			title="About — Ivan Pleshkov"
+			description="Software engineer at Qdrant. Career, talks, contact."
+		/>
 	</head>
 	<body>
 		<Header />
 		<main>
-			<h1>About</h1>
-			<p>
-				{/* TODO: bio — background, what you work on, where you have worked, what you find interesting */}
-				Hi, I'm Ivan Pleshkov.
+			<p class="eyebrow">
+				<span class="num">§ 03</span> About
+			</p>
+			<h1><em>About</em>.</h1>
+			<p class="lede">
+				Software engineer in Magdeburg, Germany. Rust at <a href="https://qdrant.tech/" target="_blank" rel="noopener noreferrer">Qdrant</a>.
+				Graphics engines in a previous life.
 			</p>
 
-			<h2>Contact</h2>
-			<ul>
-				<li>
-					Email: <a href={`mailto:${SOCIAL_LINKS.email}`}>{SOCIAL_LINKS.email}</a>
-				</li>
-				<li>
-					GitHub:
-					<a href={SOCIAL_LINKS.github} target="_blank" rel="noopener noreferrer">
-						@IvanPleshkov
-					</a>
-				</li>
-				<li>
-					LinkedIn:
-					<a href={SOCIAL_LINKS.linkedin} target="_blank" rel="noopener noreferrer">
-						ivan-pleshkov
-					</a>
-				</li>
-				<li>
-					Telegram:
+			<p>
+				I work on the Qdrant Core team, where I built the GPU-accelerated HNSW indexing
+				shipped in Qdrant 1.13. The trick is borrowed from real-time graphics — pipelines,
+				GPU memory, embarrassingly parallel work — and reapplied to approximate nearest
+				neighbor search.
+			</p>
+			<p>
+				Before vector search I spent a decade in C++: graphics-engine internals at Wargaming,
+				VR and computer vision for flight simulators at Eagle Dynamics, cross-platform
+				infrastructure for a video conferencing app at ScienceSoft. Earlier still, scientific
+				software in Delphi for ACD/Labs.
+			</p>
+			<p>
+				I write Rust day-to-day now, but still think in graphics primitives. If a problem
+				is bandwidth-bound or embarrassingly parallel, I&rsquo;ll probably reach for the GPU first.
+			</p>
+
+			<h2><span class="section-num">§</span> Experience</h2>
+			<ol class="timeline">
+				{
+					experience.map((job) => (
+						<li>
+							<div class="job-head">
+								<div class="job-title">
+									<strong>{job.role}</strong>
+									<span class="at">·</span>
+									{job.companyUrl ? (
+										<a href={job.companyUrl} target="_blank" rel="noopener noreferrer">
+											{job.company}
+										</a>
+									) : (
+										<span>{job.company}</span>
+									)}
+								</div>
+								<div class="job-meta">
+									<span class="period">{job.period}</span>
+									<span class="dot">·</span>
+									<span class="stack">{job.stack}</span>
+								</div>
+							</div>
+							<p class="job-summary">{job.summary}</p>
+						</li>
+					))
+				}
+			</ol>
+
+			<h2><span class="section-num">§</span> Projects</h2>
+			<ul class="projects">
+				{
+					projects.map((project) => (
+						<li>
+							<a href={project.url} target="_blank" rel="noopener noreferrer">
+								<div class="project-head">
+									<span class="project-name">{project.name}</span>
+									<span class="project-stack">{project.stack}</span>
+									<span class="arrow">↗</span>
+								</div>
+								<p class="project-blurb">{project.blurb}</p>
+							</a>
+						</li>
+					))
+				}
+			</ul>
+
+			<h2><span class="section-num">§</span> Talks</h2>
+			<ul class="talks">
+				{
+					talks.map((talk) => (
+						<li>
+							<a href={talk.url} target="_blank" rel="noopener noreferrer">
+								<span class="talk-title">{talk.title}</span>
+								<span class="talk-venue">{talk.venue}</span>
+								<span class="arrow">↗</span>
+							</a>
+						</li>
+					))
+				}
+			</ul>
+
+			<h2><span class="section-num">§</span> Contact</h2>
+			<dl class="contact">
+				<dt>Email</dt>
+				<dd><a href={`mailto:${SOCIAL_LINKS.email}`}>{SOCIAL_LINKS.email}</a></dd>
+				<dt>GitHub</dt>
+				<dd>
+					<a href={SOCIAL_LINKS.github} target="_blank" rel="noopener noreferrer">@IvanPleshkov</a>
+				</dd>
+				<dt>LinkedIn</dt>
+				<dd>
+					<a href={SOCIAL_LINKS.linkedin} target="_blank" rel="noopener noreferrer">ivan-pleshkov</a>
+				</dd>
+				<dt>Telegram</dt>
+				<dd>
 					<a href={SOCIAL_LINKS.telegram} target="_blank" rel="noopener noreferrer">
 						{SOCIAL_LINKS.telegramHandle}
 					</a>
-				</li>
-			</ul>
+				</dd>
+			</dl>
 		</main>
 		<Footer />
 	</body>
 </html>
+
+<style>
+	.eyebrow {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		text-transform: lowercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+		margin: 0 0 1.5em;
+	}
+	.eyebrow .num {
+		color: var(--accent);
+		margin-right: 0.4em;
+	}
+	h1 em {
+		font-style: italic;
+		color: var(--accent);
+	}
+	.lede {
+		font-family: var(--font-display);
+		font-size: 1.4rem;
+		font-style: italic;
+		line-height: 1.35;
+		color: var(--text-muted);
+		max-width: 30em;
+		margin-bottom: 2em;
+	}
+	.lede a {
+		color: var(--text-muted);
+		text-decoration-color: var(--text-subtle);
+	}
+	.lede a:hover {
+		color: var(--accent);
+		text-decoration-color: var(--accent);
+	}
+
+	h2 {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5em;
+		font-size: 1.5rem;
+		margin-top: 2.6em;
+		margin-bottom: 1em;
+	}
+	.section-num {
+		font-family: var(--font-mono);
+		font-style: normal;
+		font-size: 0.85em;
+		color: var(--accent);
+	}
+
+	.timeline {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		border-top: 1px dashed var(--rule);
+	}
+	.timeline > li {
+		padding: 1.4em 0;
+		border-bottom: 1px dashed var(--rule);
+	}
+	.job-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 1em;
+		flex-wrap: wrap;
+		margin-bottom: 0.4em;
+	}
+	.job-title {
+		font-family: var(--font-display);
+		font-size: 1.15rem;
+	}
+	.job-title strong {
+		font-weight: 500;
+	}
+	.job-title .at {
+		color: var(--text-subtle);
+		margin: 0 0.4em;
+	}
+	.job-title a {
+		color: var(--text);
+		text-decoration: none;
+		font-style: italic;
+		color: var(--accent);
+	}
+	.job-title a:hover {
+		text-decoration: underline;
+		text-decoration-color: var(--accent);
+	}
+	.job-meta {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--text-muted);
+		display: flex;
+		align-items: center;
+		gap: 0.5em;
+	}
+	.job-meta .dot {
+		color: var(--text-subtle);
+	}
+	.job-meta .stack {
+		color: var(--text-subtle);
+	}
+	.job-summary {
+		margin: 0;
+		color: var(--text-muted);
+		font-size: 0.97rem;
+		max-width: 42em;
+	}
+
+	.projects {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		border-top: 1px dashed var(--rule);
+	}
+	.projects li {
+		border-bottom: 1px dashed var(--rule);
+	}
+	.projects a {
+		display: block;
+		padding: 1em 0.4em;
+		text-decoration: none;
+		color: var(--text);
+		transition: padding 0.18s ease;
+	}
+	.projects a:hover {
+		padding-left: 1em;
+		background: var(--accent-soft);
+	}
+	.projects a:hover .arrow {
+		color: var(--accent);
+	}
+	.project-head {
+		display: flex;
+		align-items: baseline;
+		gap: 0.8em;
+		margin-bottom: 0.3em;
+	}
+	.project-name {
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 1.2rem;
+		color: var(--accent);
+	}
+	.project-stack {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--text-subtle);
+		letter-spacing: 0.04em;
+		margin-left: auto;
+	}
+	.project-blurb {
+		margin: 0;
+		color: var(--text-muted);
+		font-size: 0.95rem;
+		max-width: 42em;
+	}
+
+	.talks {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		border-top: 1px dashed var(--rule);
+	}
+	.talks li {
+		border-bottom: 1px dashed var(--rule);
+	}
+	.talks a {
+		display: grid;
+		grid-template-columns: 1fr auto auto;
+		align-items: baseline;
+		gap: 1em;
+		padding: 0.85em 0.4em;
+		text-decoration: none;
+		color: var(--text);
+		transition: padding 0.18s ease;
+	}
+	.talks a:hover {
+		padding-left: 1em;
+		background: var(--accent-soft);
+	}
+	.talks a:hover .arrow {
+		color: var(--accent);
+	}
+	.talk-title {
+		font-family: var(--font-display);
+		font-style: italic;
+	}
+	.talk-venue {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--text-muted);
+	}
+	.arrow {
+		color: var(--text-muted);
+	}
+
+	.contact {
+		display: grid;
+		grid-template-columns: 7em 1fr;
+		gap: 0.6em 1em;
+		font-family: var(--font-mono);
+		font-size: 14px;
+		margin: 0;
+		border-top: 1px dashed var(--rule);
+		padding-top: 1em;
+	}
+	.contact dt {
+		color: var(--text-subtle);
+		text-transform: lowercase;
+		letter-spacing: 0.05em;
+	}
+	.contact dd {
+		margin: 0;
+	}
+	.contact a {
+		color: var(--text);
+	}
+	.contact a:hover {
+		color: var(--accent);
+	}
+
+	@media (max-width: 540px) {
+		.job-head {
+			flex-direction: column;
+			gap: 0.3em;
+		}
+	}
+</style>

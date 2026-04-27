@@ -17,26 +17,31 @@ export default defineConfig({
 	},
 	fonts: [
 		{
-			provider: fontProviders.local(),
-			name: 'Atkinson',
-			cssVariable: '--font-atkinson',
-			fallbacks: ['sans-serif'],
-			options: {
-				variants: [
-					{
-						src: ['./src/assets/fonts/atkinson-regular.woff'],
-						weight: 400,
-						style: 'normal',
-						display: 'swap',
-					},
-					{
-						src: ['./src/assets/fonts/atkinson-bold.woff'],
-						weight: 700,
-						style: 'normal',
-						display: 'swap',
-					},
-				],
-			},
+			provider: fontProviders.google(),
+			name: 'Newsreader',
+			cssVariable: '--font-display',
+			fallbacks: ['Georgia', 'serif'],
+			weights: [400, 500, 600],
+			styles: ['normal', 'italic'],
+			subsets: ['latin', 'latin-ext', 'cyrillic'],
+		},
+		{
+			provider: fontProviders.google(),
+			name: 'Inter',
+			cssVariable: '--font-sans',
+			fallbacks: ['system-ui', 'sans-serif'],
+			weights: [400, 500, 600, 700],
+			styles: ['normal'],
+			subsets: ['latin', 'latin-ext', 'cyrillic'],
+		},
+		{
+			provider: fontProviders.google(),
+			name: 'JetBrains Mono',
+			cssVariable: '--font-mono',
+			fallbacks: ['ui-monospace', 'SFMono-Regular', 'monospace'],
+			weights: [400, 500, 700],
+			styles: ['normal'],
+			subsets: ['latin', 'latin-ext', 'cyrillic'],
 		},
 	],
 });

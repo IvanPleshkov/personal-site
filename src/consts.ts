@@ -1,5 +1,6 @@
 export const SITE_TITLE = 'Ivan Pleshkov';
-export const SITE_DESCRIPTION = 'Personal site of Ivan Pleshkov.';
+export const SITE_DESCRIPTION =
+	'Software engineer at Qdrant — bringing GPU tricks from graphics engines into vector search.';
 
 export const SOCIAL_LINKS = {
 	github: 'https://github.com/IvanPleshkov',

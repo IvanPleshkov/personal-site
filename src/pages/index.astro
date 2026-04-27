@@ -13,21 +13,58 @@ import { SITE_DESCRIPTION, SITE_TITLE, SOCIAL_LINKS } from '../consts';
 	<body>
 		<Header />
 		<main>
-			<section class="intro">
-				<h1>Ivan Pleshkov</h1>
+			<section class="hero">
+				<p class="eyebrow">
+					<span class="dot-mark"></span>
+					Personal site of
+				</p>
+				<h1>
+					Ivan <em>Pleshkov</em>.
+				</h1>
 				<p class="tagline">
-					{/* TODO: replace with a one-line description of who you are */}
-					Software engineer.
+					Software engineer at Qdrant. I bring GPU tricks from graphics engines into vector search.
 				</p>
-				<p>
-					{/* TODO: short paragraph — what you work on, what you care about, what you are looking for */}
-					Welcome. This is my personal site — work in progress.
+				<p class="lede">
+					Working on the <a href="https://qdrant.tech/" target="_blank" rel="noopener noreferrer">Qdrant</a> vector search
+					core in Rust. Twelve years before that: graphics-engine internals at Wargaming, VR and computer vision
+					for flight simulators, cross-platform C++ for video conferencing, and scientific software in Delphi.
+					Based in Magdeburg, Germany.
 				</p>
-				<ul class="links">
-					<li><a href={SOCIAL_LINKS.github} target="_blank" rel="noopener noreferrer">GitHub</a></li>
-					<li><a href={SOCIAL_LINKS.linkedin} target="_blank" rel="noopener noreferrer">LinkedIn</a></li>
-					<li><a href={SOCIAL_LINKS.telegram} target="_blank" rel="noopener noreferrer">Telegram</a></li>
-					<li><a href={`mailto:${SOCIAL_LINKS.email}`}>{SOCIAL_LINKS.email}</a></li>
+			</section>
+
+			<section class="elsewhere">
+				<h2>
+					<span class="section-num">§</span> Elsewhere
+				</h2>
+				<ul class="link-list">
+					<li>
+						<a href={SOCIAL_LINKS.github} target="_blank" rel="noopener noreferrer">
+							<span class="key">github</span>
+							<span class="val">@IvanPleshkov</span>
+							<span class="arrow">↗</span>
+						</a>
+					</li>
+					<li>
+						<a href={SOCIAL_LINKS.linkedin} target="_blank" rel="noopener noreferrer">
+							<span class="key">linkedin</span>
+							<span class="val">ivan-pleshkov</span>
+							<span class="arrow">↗</span>
+						</a>
+					</li>
+					<li>
+						<a href={SOCIAL_LINKS.telegram} target="_blank" rel="noopener noreferrer">
+							<span class="key">telegram</span>
+							<span class="val">{SOCIAL_LINKS.telegramHandle}</span>
+							<span class="arrow">↗</span>
+						</a>
+					</li>
+					<li>
+						<a href={`mailto:${SOCIAL_LINKS.email}`}>
+							<span class="key">email</span>
+							<span class="val">{SOCIAL_LINKS.email}</span>
+							<span class="arrow">→</span>
+						</a>
+					</li>
 				</ul>
 			</section>
 		</main>
@@ -36,22 +73,109 @@ import { SITE_DESCRIPTION, SITE_TITLE, SOCIAL_LINKS } from '../consts';
 </html>
 
 <style>
-	.intro {
-		padding-top: 1em;
+	.hero {
+		padding: 1em 0 2em;
+	}
+	.eyebrow {
+		display: flex;
+		align-items: center;
+		gap: 0.6em;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		text-transform: lowercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+		margin: 0 0 1.5em;
+	}
+	.dot-mark {
+		display: inline-block;
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--accent);
+		box-shadow: 0 0 0 4px var(--accent-soft);
+	}
+	.hero h1 {
+		margin: 0 0 0.2em;
+	}
+	.hero h1 em {
+		font-style: italic;
+		color: var(--accent);
 	}
 	.tagline {
-		font-size: 1.25em;
-		color: rgb(var(--gray-dark));
-		margin-bottom: 1.5em;
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 1.4rem;
+		color: var(--text-muted);
+		margin: 0 0 1.4em;
 	}
-	.links {
+	.lede {
+		font-size: 1.05rem;
+		max-width: 36em;
+		color: var(--text);
+	}
+
+	.elsewhere {
+		margin-top: 3em;
+	}
+	.elsewhere h2 {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5em;
+		font-size: 1.5rem;
+		margin-top: 0;
+		margin-bottom: 1em;
+	}
+	.section-num {
+		font-family: var(--font-mono);
+		font-style: normal;
+		font-size: 0.85em;
+		color: var(--accent);
+	}
+	.link-list {
 		list-style: none;
 		padding: 0;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 1em 1.5em;
-	}
-	.links li {
 		margin: 0;
+		border-top: 1px dashed var(--rule);
+	}
+	.link-list li {
+		border-bottom: 1px dashed var(--rule);
+	}
+	.link-list a {
+		display: grid;
+		grid-template-columns: 7em 1fr auto;
+		align-items: baseline;
+		gap: 1em;
+		padding: 0.85em 0.4em;
+		font-family: var(--font-mono);
+		font-size: 14px;
+		text-decoration: none;
+		color: var(--text);
+		transition: padding 0.18s ease;
+	}
+	.link-list a:hover {
+		padding-left: 1em;
+		background: var(--accent-soft);
+	}
+	.key {
+		color: var(--text-subtle);
+		text-transform: lowercase;
+		letter-spacing: 0.05em;
+	}
+	.val {
+		color: var(--text);
+	}
+	.arrow {
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+	}
+	.link-list a:hover .arrow {
+		color: var(--accent);
+	}
+	@media (max-width: 540px) {
+		.link-list a {
+			grid-template-columns: 5.5em 1fr auto;
+			font-size: 13px;
+		}
 	}
 </style>

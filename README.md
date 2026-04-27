@@ -1,63 +1,99 @@
-# Astro Starter Kit: Blog
+# ivanpleshkov.dev
 
-```sh
-pnpm create astro@latest -- --template blog
+Personal site of [Ivan Pleshkov](https://github.com/IvanPleshkov). Bilingual (EN default, RU under `/ru/`), editorial-styled, statically built with [Astro](https://astro.build).
+
+## Stack
+
+- **Astro 6** — static output
+- **TypeScript**, **MDX** for blog posts
+- **Google Fonts** via Astro Fonts API: Newsreader (display), Inter (body), JetBrains Mono (chrome)
+- **satori + @resvg/resvg-js** — build-time generation of per-page Open Graph images
+- **JSON-LD** structured data: Person + WebSite baseline, ProfilePage on `/about`, BlogPosting on each post
+- **i18n** built-in: `prefixDefaultLocale: false` (English at root, Russian at `/ru/`)
+- Dark theme via `data-theme` attribute set by inline script (respects `prefers-color-scheme`, persists in `localStorage`)
+
+## Layout
+
+```
+src/
+├── assets/
+│   ├── portrait.jpeg          # /about photo
+│   └── fonts/                 # legacy Atkinson, unused
+├── components/
+│   ├── BaseHead.astro         # <head>: meta, fonts, theme bootstrap, JSON-LD, OG
+│   ├── Header.astro           # sticky bar: nav, lang switch, theme toggle
+│   ├── Footer.astro           # mono footer with social links + colophon
+│   ├── HeaderLink.astro
+│   └── FormattedDate.astro
+├── content/blog/              # posts (md / mdx). Schema in src/content.config.ts
+├── i18n/ui.ts                 # translations + getLangFromUrl + getAlternateLocale
+├── layouts/BlogPost.astro     # post page layout
+├── lib/
+│   ├── og.ts                  # satori-based OG image renderer
+│   └── schema.ts              # JSON-LD Person/WebSite/ProfilePage/BlogPosting
+├── pages/
+│   ├── index.astro            # / (EN home)
+│   ├── about.astro            # /about
+│   ├── blog/
+│   │   ├── index.astro        # /blog list
+│   │   └── [...slug].astro    # /blog/<post>
+│   ├── ru/                    # Russian mirrors of home and about
+│   ├── og.png.ts              # /og.png — homepage default OG
+│   ├── og/about.png.ts        # /og/about.png
+│   ├── og/blog.png.ts         # /og/blog.png
+│   ├── og/blog/[slug].png.ts  # per-post OG, getStaticPaths from collection
+│   └── rss.xml.js             # RSS feed
+├── styles/global.css          # editorial palette, dark mode tokens, type scale
+└── consts.ts                  # SITE_TITLE, SITE_DESCRIPTION, SOCIAL_LINKS
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Commands
 
-Features:
+| Command         | Action                                         |
+| :-------------- | :--------------------------------------------- |
+| `pnpm install`  | Install dependencies (Node ≥ 22.12)            |
+| `pnpm dev`      | Dev server at `http://localhost:4321`          |
+| `pnpm build`    | Static build to `./dist/`                      |
+| `pnpm preview`  | Serve `./dist/` for a final pre-deploy check   |
+| `pnpm astro …`  | Astro CLI (e.g. `astro check` for type errors) |
 
-- ✅ Minimal styling (make it your own!)
-- ✅ 100/100 Lighthouse performance
-- ✅ SEO-friendly with canonical URLs and Open Graph data
-- ✅ Sitemap support
-- ✅ RSS Feed support
-- ✅ Markdown & MDX support
+OG fonts are fetched from Google Fonts on first build and cached in
+`node_modules/.cache/og-fonts/`. CI builds will redownload (≈100 KB total),
+local rebuilds reuse the cache.
 
-## 🚀 Project Structure
+## Adding a blog post
 
-Inside of your Astro project, you'll see the following folders and files:
+1. Create `src/content/blog/<slug>.md` (or `.mdx` for JSX-in-Markdown).
+2. Frontmatter:
+   ```yaml
+   ---
+   title: "Post title"
+   description: "1–2 sentence teaser, also used for <meta description>"
+   pubDate: "2026-04-30"
+   # updatedDate: "2026-05-15"   # optional
+   # heroImage: "./hero.jpg"     # optional, place next to the .md
+   ---
+   ```
+3. Write Markdown / MDX. The post page, RSS entry, and a custom OG image at
+   `/og/blog/<slug>.png` are generated automatically.
 
-```text
-├── public/
-├── src/
-│   ├── assets/
-│   ├── components/
-│   ├── content/
-│   ├── layouts/
-│   └── pages/
-├── astro.config.mjs
-├── README.md
-├── package.json
-└── tsconfig.json
-```
+## Design language
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+- Light theme: warm paper (`#f6f2e8`) with rust accent (`#b8451e`).
+- Dark theme: graphite (`#14130f`) with amber accent (`#f59e3c`).
+- Display: Newsreader Italic for headings and titles.
+- Mono: JetBrains Mono for nav, dates, handles, OG metadata.
+- Dashed rules separate sections; `§` markers and numbered nav (`01`, `02`, `03`).
+- Restraint: no boxes, no shadows, no second accent color.
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+## Deploy
 
-The `src/content/` directory contains "collections" of related Markdown and MDX documents. Use `getCollection()` to retrieve posts from `src/content/blog/`, and type-check your frontmatter using an optional schema. See [Astro's Content Collections docs](https://docs.astro.build/en/guides/content-collections/) to learn more.
+Not wired up yet. The site is a plain static build (`./dist/`) — drop it on
+any static host (Vercel, Netlify, Cloudflare Pages, GitHub Pages, etc.).
+`astro.config.mjs` already sets `site: 'https://ivanpleshkov.dev'` so canonical
+URLs, sitemap, RSS, and OG `og:url` tags resolve to the production domain.
 
-Any static assets, like images, can be placed in the `public/` directory.
+## Credits
 
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `pnpm install`             | Installs dependencies                            |
-| `pnpm dev`             | Starts local dev server at `localhost:4321`      |
-| `pnpm build`           | Build your production site to `./dist/`          |
-| `pnpm preview`         | Preview your build locally, before deploying     |
-| `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `pnpm astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Check out [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
-
-## Credit
-
-This theme is based off of the lovely [Bear Blog](https://github.com/HermanMartinus/bearblog/).
+- Based on the [Astro blog starter](https://github.com/withastro/astro/tree/main/examples/blog), itself
+  inspired by [Bear Blog](https://github.com/HermanMartinus/bearblog/). Both heavily restyled.

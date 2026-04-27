@@ -1,18 +1,27 @@
 ---
 import '../styles/global.css';
 import { SITE_TITLE } from '../consts';
+import { buildGraph } from '../lib/schema';
 import { Font } from 'astro:assets';
 
 interface Props {
 	title: string;
 	description: string;
 	ogImage?: string;
+	pageSchema?: object | object[];
 }
 
-const { title, description, ogImage = '/og.png' } = Astro.props;
+const { title, description, ogImage = '/og.png', pageSchema } = Astro.props;
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const ogImageURL = new URL(ogImage, Astro.site).toString();
+
+const extraNodes = pageSchema
+	? Array.isArray(pageSchema)
+		? pageSchema
+		: [pageSchema]
+	: [];
+const jsonLd = buildGraph(...extraNodes);
 ---
 
 <!-- Global Metadata -->
@@ -71,3 +80,6 @@ const ogImageURL = new URL(ogImage, Astro.site).toString();
 <meta property="twitter:title" content={title} />
 <meta property="twitter:description" content={description} />
 <meta property="twitter:image" content={ogImageURL} />
+
+<!-- Structured data: Person + WebSite (+ page-specific) for AI crawlers and search engines -->
+<script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />

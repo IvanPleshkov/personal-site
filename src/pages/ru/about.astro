@@ -5,6 +5,9 @@ import BaseHead from '../../components/BaseHead.astro';
 import Footer from '../../components/Footer.astro';
 import Header from '../../components/Header.astro';
 import { SOCIAL_LINKS } from '../../consts';
+import { profilePageSchema } from '../../lib/schema';
+
+const pageUrl = new URL(Astro.url.pathname, Astro.site).toString();
 
 const experience = [
 	{
@@ -75,6 +78,7 @@ const talks = [
 			title="Обо мне — Иван Плешков"
 			description="Инженер в Qdrant. Опыт, доклады, контакты."
 			ogImage="/og/about.png"
+			pageSchema={profilePageSchema(pageUrl)}
 		/>
 	</head>
 	<body>

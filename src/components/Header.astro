@@ -1,0 +1,211 @@
+---
+import { SITE_TITLE, SOCIAL_LINKS } from '../consts';
+import { getAlternateLocale, getLangFromUrl, useTranslations } from '../i18n/ui';
+import HeaderLink from './HeaderLink.astro';
+
+const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
+const homeHref = lang === 'ru' ? '/ru/' : '/';
+const aboutHref = lang === 'ru' ? '/ru/about' : '/about';
+const blogHref = '/blog';
+const alternate = getAlternateLocale(Astro.url.pathname);
+const altLabel = alternate.lang.toUpperCase();
+---
+
+<header>
+	<nav>
+		<h2><a href={homeHref}>{SITE_TITLE}</a></h2>
+		<div class="internal-links">
+			<HeaderLink href={homeHref}>{t('nav.home')}</HeaderLink>
+			<HeaderLink href={blogHref}>{t('nav.blog')}</HeaderLink>
+			<HeaderLink href={aboutHref}>{t('nav.about')}</HeaderLink>
+		</div>
+		<div class="actions">
+			<a class="lang-switch" href={alternate.href} aria-label={t('lang.switch')}>{altLabel}</a>
+			<button id="theme-toggle" type="button" aria-label={t('theme.toggle')} class="theme-toggle">
+				<svg
+					class="icon-sun"
+					viewBox="0 0 24 24"
+					width="20"
+					height="20"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<circle cx="12" cy="12" r="4"></circle>
+					<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+				</svg>
+				<svg
+					class="icon-moon"
+					viewBox="0 0 24 24"
+					width="20"
+					height="20"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+				</svg>
+			</button>
+			<div class="social-links">
+				<a href={SOCIAL_LINKS.github} target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+					<svg viewBox="0 0 16 16" aria-hidden="true" width="22" height="22"
+						><path
+							fill="currentColor"
+							d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+						></path></svg
+					>
+				</a>
+				<a
+					href={SOCIAL_LINKS.linkedin}
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label="LinkedIn"
+				>
+					<svg viewBox="0 0 16 16" aria-hidden="true" width="22" height="22"
+						><path
+							fill="currentColor"
+							d="M13.632 13.635h-2.37V9.922c0-.886-.018-2.025-1.234-2.025-1.235 0-1.424.964-1.424 1.96v3.778h-2.37V6h2.275v1.04h.032c.317-.6 1.091-1.232 2.246-1.232 2.401 0 2.845 1.58 2.845 3.637v4.19zM3.558 4.957a1.376 1.376 0 0 1-1.377-1.377c0-.76.617-1.377 1.377-1.377.76 0 1.376.617 1.376 1.377 0 .76-.616 1.377-1.376 1.377zm1.188 8.678H2.37V6h2.376v7.635zM14.816 0H1.18C.528 0 0 .516 0 1.153v13.694C0 15.484.528 16 1.18 16h13.635c.652 0 1.185-.516 1.185-1.153V1.153C16 .516 15.467 0 14.815 0z"
+						></path></svg
+					>
+				</a>
+				<a
+					href={SOCIAL_LINKS.telegram}
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label="Telegram"
+				>
+					<svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22"
+						><path
+							fill="currentColor"
+							d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"
+						></path></svg
+					>
+				</a>
+				<a href={`mailto:${SOCIAL_LINKS.email}`} aria-label="Email">
+					<svg viewBox="0 0 16 16" aria-hidden="true" width="22" height="22"
+						><path
+							fill="currentColor"
+							d="M2 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H2zm0 1h12c.087 0 .172.011.253.032L8 8.928 1.747 4.032A1.01 1.01 0 0 1 2 4zm-1 1.572 5.5 4.308a1 1 0 0 0 1.235 0L13.428 5.572 14 5l.5.5L9 9.928a2 2 0 0 1-2.47 0L1 5.5 1.5 5l-.5.572z"
+						></path></svg
+					>
+				</a>
+			</div>
+		</div>
+	</nav>
+</header>
+
+<script is:inline>
+	(function () {
+		const btn = document.getElementById('theme-toggle');
+		if (!btn) return;
+		btn.addEventListener('click', () => {
+			const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+			const next = current === 'dark' ? 'light' : 'dark';
+			document.documentElement.dataset.theme = next;
+			try {
+				localStorage.setItem('theme', next);
+			} catch {}
+		});
+	})();
+</script>
+
+<style>
+	header {
+		margin: 0;
+		padding: 0 1em;
+		background: var(--bg-elevated);
+		box-shadow: 0 2px 8px rgba(var(--black), 5%);
+	}
+	h2 {
+		margin: 0;
+		font-size: 1em;
+	}
+	h2 a,
+	h2 a.active {
+		text-decoration: none;
+	}
+	nav {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1em;
+	}
+	nav a {
+		padding: 1em 0.5em;
+		color: rgb(var(--black));
+		border-bottom: 4px solid transparent;
+		text-decoration: none;
+	}
+	nav a.active {
+		text-decoration: none;
+		border-bottom-color: var(--accent);
+	}
+	.actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5em;
+	}
+	.lang-switch {
+		padding: 0.4em 0.6em !important;
+		font-size: 0.85em;
+		font-weight: 700;
+		letter-spacing: 0.05em;
+		border: 1px solid rgb(var(--gray-light));
+		border-radius: 6px;
+		color: rgb(var(--gray-dark)) !important;
+	}
+	.lang-switch:hover {
+		border-color: var(--accent);
+		color: var(--accent) !important;
+	}
+	.theme-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		padding: 0;
+		background: transparent;
+		border: 1px solid rgb(var(--gray-light));
+		border-radius: 6px;
+		color: rgb(var(--gray-dark));
+		cursor: pointer;
+	}
+	.theme-toggle:hover {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.theme-toggle .icon-sun {
+		display: none;
+	}
+	:root[data-theme='dark'] .theme-toggle .icon-sun {
+		display: block;
+	}
+	:root[data-theme='dark'] .theme-toggle .icon-moon {
+		display: none;
+	}
+	.social-links {
+		display: flex;
+		gap: 0.25em;
+	}
+	.social-links a {
+		display: flex;
+		padding: 0.5em;
+		color: rgb(var(--gray-dark));
+	}
+	.social-links a:hover {
+		color: var(--accent);
+	}
+	@media (max-width: 720px) {
+		.social-links {
+			display: none;
+		}
+	}
+</style>

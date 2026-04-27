@@ -1,0 +1,43 @@
+---
+import BaseHead from '../../components/BaseHead.astro';
+import Footer from '../../components/Footer.astro';
+import Header from '../../components/Header.astro';
+import { SOCIAL_LINKS } from '../../consts';
+---
+
+<!doctype html>
+<html lang="ru">
+	<head>
+		<BaseHead title="Обо мне — Иван Плешков" description="Об Иване Плешкове." />
+	</head>
+	<body>
+		<Header />
+		<main>
+			<h1>Обо мне</h1>
+			<p>
+				{/* TODO: био — бэкграунд, чем занимаюсь, где работал, что интересно */}
+				Привет, я Иван Плешков.
+			</p>
+
+			<h2>Контакты</h2>
+			<ul>
+				<li>
+					Email: <a href={`mailto:${SOCIAL_LINKS.email}`}>{SOCIAL_LINKS.email}</a>
+				</li>
+				<li>
+					GitHub:
+					<a href={SOCIAL_LINKS.github} target="_blank" rel="noopener noreferrer">@IvanPleshkov</a>
+				</li>
+				<li>
+					LinkedIn:
+					<a href={SOCIAL_LINKS.linkedin} target="_blank" rel="noopener noreferrer">ivan-pleshkov</a>
+				</li>
+				<li>
+					Telegram:
+					<a href={SOCIAL_LINKS.telegram} target="_blank" rel="noopener noreferrer">{SOCIAL_LINKS.telegramHandle}</a>
+				</li>
+			</ul>
+		</main>
+		<Footer />
+	</body>
+</html>

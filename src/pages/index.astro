@@ -1,0 +1,57 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import { SITE_DESCRIPTION, SITE_TITLE, SOCIAL_LINKS } from '../consts';
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<BaseHead title={SITE_TITLE} description={SITE_DESCRIPTION} />
+	</head>
+	<body>
+		<Header />
+		<main>
+			<section class="intro">
+				<h1>Ivan Pleshkov</h1>
+				<p class="tagline">
+					{/* TODO: replace with a one-line description of who you are */}
+					Software engineer.
+				</p>
+				<p>
+					{/* TODO: short paragraph — what you work on, what you care about, what you are looking for */}
+					Welcome. This is my personal site — work in progress.
+				</p>
+				<ul class="links">
+					<li><a href={SOCIAL_LINKS.github} target="_blank" rel="noopener noreferrer">GitHub</a></li>
+					<li><a href={SOCIAL_LINKS.linkedin} target="_blank" rel="noopener noreferrer">LinkedIn</a></li>
+					<li><a href={SOCIAL_LINKS.telegram} target="_blank" rel="noopener noreferrer">Telegram</a></li>
+					<li><a href={`mailto:${SOCIAL_LINKS.email}`}>{SOCIAL_LINKS.email}</a></li>
+				</ul>
+			</section>
+		</main>
+		<Footer />
+	</body>
+</html>
+
+<style>
+	.intro {
+		padding-top: 1em;
+	}
+	.tagline {
+		font-size: 1.25em;
+		color: rgb(var(--gray-dark));
+		margin-bottom: 1.5em;
+	}
+	.links {
+		list-style: none;
+		padding: 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1em 1.5em;
+	}
+	.links li {
+		margin: 0;
+	}
+</style>

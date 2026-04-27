@@ -1,0 +1,10 @@
+{
+	"$schema": "https://json.schemastore.org/wrangler.json",
+	"name": "personal-site",
+	"compatibility_date": "2026-04-27",
+	"assets": {
+		"directory": "./dist",
+		"html_handling": "auto-trailing-slash",
+		"not_found_handling": "404-page"
+	}
+}

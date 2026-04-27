@@ -88,10 +88,28 @@ local rebuilds reuse the cache.
 
 ## Deploy
 
-Not wired up yet. The site is a plain static build (`./dist/`) — drop it on
-any static host (Vercel, Netlify, Cloudflare Pages, GitHub Pages, etc.).
-`astro.config.mjs` already sets `site: 'https://ivanpleshkov.dev'` so canonical
-URLs, sitemap, RSS, and OG `og:url` tags resolve to the production domain.
+Wired up for **Cloudflare Workers Static Assets** via [`wrangler.jsonc`](./wrangler.jsonc).
+The build outputs static files to `./dist/`, and `wrangler deploy` uploads
+them as a Workers asset binding (no SSR runtime, no adapter).
+
+Important: `astro.config.mjs` pins `output: 'static'`. The Cloudflare deploy
+wizard auto-detects Astro and tries to run `astro add cloudflare`, which would
+flip the build to `server` mode and break OG generation (resvg-js native binary
+won't run in Workers). Keeping `output: 'static'` + an existing `wrangler.jsonc`
+signals to the wizard that the project is already configured.
+
+Manual deploy (after `wrangler login`):
+
+```sh
+pnpm run deploy   # = pnpm run build && wrangler deploy
+```
+
+CI deploy through Cloudflare's Git integration uses the same scripts.
+
+The site can also be deployed to any other static host (Vercel, Netlify,
+GitHub Pages, etc.) — just drop `./dist/` on it. `astro.config.mjs` already
+sets `site: 'https://ivanpleshkov.dev'` so canonical URLs, sitemap, RSS,
+and OG `og:url` tags resolve to the production domain.
 
 ## Credits
 

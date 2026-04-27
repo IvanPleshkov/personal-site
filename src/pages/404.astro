@@ -1,0 +1,62 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import { SITE_TITLE } from '../consts';
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<BaseHead title={`404 — ${SITE_TITLE}`} description="Page not found." />
+	</head>
+	<body>
+		<Header />
+		<main>
+			<p class="eyebrow">
+				<span class="num">§</span> 404
+			</p>
+			<h1><em>Not found</em>.</h1>
+			<p class="lede">The page you were looking for isn&rsquo;t here.</p>
+			<p class="hint mono">[ try <a href="/">/</a> · <a href="/blog">/blog</a> · <a href="/about">/about</a> ]</p>
+		</main>
+		<Footer />
+	</body>
+</html>
+
+<style>
+	.eyebrow {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		text-transform: lowercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+		margin: 0 0 1.5em;
+	}
+	.eyebrow .num {
+		color: var(--accent);
+		margin-right: 0.4em;
+	}
+	h1 em {
+		font-style: italic;
+		color: var(--accent);
+	}
+	.lede {
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 1.4rem;
+		color: var(--text-muted);
+		margin-bottom: 2em;
+	}
+	.hint {
+		font-family: var(--font-mono);
+		font-size: 14px;
+		color: var(--text-subtle);
+	}
+	.hint a {
+		color: var(--text-muted);
+	}
+	.hint a:hover {
+		color: var(--accent);
+	}
+</style>

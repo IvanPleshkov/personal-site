@@ -1,11 +1,10 @@
 ---
-import { Image } from 'astro:assets';
 import { getCollection } from 'astro:content';
 import BaseHead from '../../components/BaseHead.astro';
 import Footer from '../../components/Footer.astro';
 import FormattedDate from '../../components/FormattedDate.astro';
 import Header from '../../components/Header.astro';
-import { SITE_DESCRIPTION, SITE_TITLE } from '../../consts';
+import { SITE_TITLE } from '../../consts';
 
 const posts = (await getCollection('blog')).sort(
 	(a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf(),
@@ -15,100 +14,157 @@ const posts = (await getCollection('blog')).sort(
 <!doctype html>
 <html lang="en">
 	<head>
-		<BaseHead title={SITE_TITLE} description={SITE_DESCRIPTION} />
-		<style>
-			main {
-				width: 960px;
-			}
-			ul {
-				display: flex;
-				flex-wrap: wrap;
-				gap: 2rem;
-				list-style-type: none;
-				margin: 0;
-				padding: 0;
-			}
-			ul li {
-				width: calc(50% - 1rem);
-			}
-			ul li * {
-				text-decoration: none;
-				transition: 0.2s ease;
-			}
-			ul li:first-child {
-				width: 100%;
-				margin-bottom: 1rem;
-				text-align: center;
-			}
-			ul li:first-child img {
-				width: 100%;
-			}
-			ul li:first-child .title {
-				font-size: 2.369rem;
-			}
-			ul li img {
-				margin-bottom: 0.5rem;
-				border-radius: 12px;
-			}
-			ul li a {
-				display: block;
-			}
-			.title {
-				margin: 0;
-				color: rgb(var(--black));
-				line-height: 1;
-			}
-			.date {
-				margin: 0;
-				color: rgb(var(--gray));
-			}
-			ul li a:hover h4,
-			ul li a:hover .date {
-				color: rgb(var(--accent));
-			}
-			ul a:hover img {
-				box-shadow: var(--box-shadow);
-			}
-			@media (max-width: 720px) {
-				ul {
-					gap: 0.5em;
-				}
-				ul li {
-					width: 100%;
-					text-align: center;
-				}
-				ul li:first-child {
-					margin-bottom: 0;
-				}
-				ul li:first-child .title {
-					font-size: 1.563em;
-				}
-			}
-		</style>
+		<BaseHead
+			title={`Blog — ${SITE_TITLE}`}
+			description="Notes from Ivan Pleshkov on Rust, GPU, vector search, and graphics."
+		/>
 	</head>
 	<body>
 		<Header />
 		<main>
-			<section>
-				<ul>
-					{
-						posts.map((post) => (
+			<p class="eyebrow">
+				<span class="num">§ 02</span> Blog
+			</p>
+			<h1><em>Notes</em>.</h1>
+			<p class="lede">
+				Long-form thoughts on Rust, GPU, vector search, and the occasional graphics aside.
+			</p>
+
+			{
+				posts.length === 0 ? (
+					<div class="empty">
+						<p class="empty-line">[ no posts yet ]</p>
+						<p class="empty-hint">First one is on the way.</p>
+					</div>
+				) : (
+					<ol class="posts">
+						{posts.map((post) => (
 							<li>
 								<a href={`/blog/${post.id}/`}>
-									{post.data.heroImage && (
-										<Image width={720} height={360} src={post.data.heroImage} alt="" />
-									)}
-									<h4 class="title">{post.data.title}</h4>
-									<p class="date">
+									<span class="date">
 										<FormattedDate date={post.data.pubDate} />
-									</p>
+									</span>
+									<span class="title">{post.data.title}</span>
+									<span class="arrow">→</span>
 								</a>
+								{post.data.description && (
+									<p class="excerpt">{post.data.description}</p>
+								)}
 							</li>
-						))
-					}
-				</ul>
-			</section>
+						))}
+					</ol>
+				)
+			}
 		</main>
 		<Footer />
 	</body>
 </html>
+
+<style>
+	.eyebrow {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		text-transform: lowercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+		margin: 0 0 1.5em;
+	}
+	.eyebrow .num {
+		color: var(--accent);
+		margin-right: 0.4em;
+	}
+	h1 em {
+		font-style: italic;
+		color: var(--accent);
+	}
+	.lede {
+		font-family: var(--font-display);
+		font-size: 1.3rem;
+		font-style: italic;
+		color: var(--text-muted);
+		max-width: 32em;
+		margin-bottom: 2.5em;
+	}
+
+	.empty {
+		border-top: 1px dashed var(--rule);
+		border-bottom: 1px dashed var(--rule);
+		padding: 3em 0.4em;
+		text-align: left;
+	}
+	.empty-line {
+		font-family: var(--font-mono);
+		font-size: 14px;
+		color: var(--text-subtle);
+		margin: 0 0 0.4em;
+		letter-spacing: 0.04em;
+	}
+	.empty-hint {
+		font-family: var(--font-display);
+		font-style: italic;
+		color: var(--text-muted);
+		margin: 0;
+	}
+
+	.posts {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		border-top: 1px dashed var(--rule);
+	}
+	.posts > li {
+		border-bottom: 1px dashed var(--rule);
+		padding: 0;
+	}
+	.posts a {
+		display: grid;
+		grid-template-columns: 7em 1fr auto;
+		align-items: baseline;
+		gap: 1.2em;
+		padding: 1em 0.4em 0.4em;
+		text-decoration: none;
+		color: var(--text);
+		transition: padding 0.18s ease;
+	}
+	.posts a:hover {
+		padding-left: 1em;
+		background: var(--accent-soft);
+	}
+	.posts .date {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--text-subtle);
+		font-variant-numeric: tabular-nums;
+	}
+	.posts .title {
+		font-family: var(--font-display);
+		font-size: 1.25rem;
+		color: var(--text);
+	}
+	.posts a:hover .title {
+		color: var(--accent);
+	}
+	.posts .arrow {
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+	}
+	.posts a:hover .arrow {
+		color: var(--accent);
+	}
+	.posts .excerpt {
+		margin: 0 0.4em 1em;
+		padding-left: 8.2em;
+		color: var(--text-muted);
+		font-size: 0.95rem;
+		max-width: 50em;
+	}
+	@media (max-width: 540px) {
+		.posts a {
+			grid-template-columns: 6em 1fr auto;
+			font-size: 0.95rem;
+		}
+		.posts .excerpt {
+			padding-left: 0.4em;
+		}
+	}
+</style>

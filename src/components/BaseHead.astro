@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css';
 import { SITE_TITLE } from '../consts';
+import { getAlternateLocale, getLangFromUrl } from '../i18n/ui';
 import { buildGraph } from '../lib/schema';
 import { Font } from 'astro:assets';
 
@@ -9,9 +10,10 @@ interface Props {
 	description: string;
 	ogImage?: string;
 	pageSchema?: object | object[];
+	bilingual?: boolean;
 }
 
-const { title, description, ogImage = '/og.png', pageSchema } = Astro.props;
+const { title, description, ogImage = '/og.png', pageSchema, bilingual = false } = Astro.props;
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const ogImageURL = new URL(ogImage, Astro.site).toString();
@@ -22,6 +24,21 @@ const extraNodes = pageSchema
 		: [pageSchema]
 	: [];
 const jsonLd = buildGraph(...extraNodes);
+
+let alternates: { lang: string; href: string }[] = [];
+if (bilingual) {
+	const currentLang = getLangFromUrl(Astro.url);
+	const currentHref = canonicalURL.toString();
+	const alt = getAlternateLocale(Astro.url.pathname);
+	const altHref = new URL(alt.href, Astro.site).toString();
+	const enHref = currentLang === 'en' ? currentHref : altHref;
+	const ruHref = currentLang === 'ru' ? currentHref : altHref;
+	alternates = [
+		{ lang: 'en', href: enHref },
+		{ lang: 'ru', href: ruHref },
+		{ lang: 'x-default', href: enHref },
+	];
+}
 ---
 
 <!-- Global Metadata -->
@@ -59,6 +76,12 @@ const jsonLd = buildGraph(...extraNodes);
 
 <!-- Canonical URL -->
 <link rel="canonical" href={canonicalURL} />
+
+{
+	alternates.map((a) => (
+		<link rel="alternate" hreflang={a.lang} href={a.href} />
+	))
+}
 
 <!-- Primary Meta Tags -->
 <title>{title}</title>

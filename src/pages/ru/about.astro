@@ -5,9 +5,13 @@ import BaseHead from '../../components/BaseHead.astro';
 import Footer from '../../components/Footer.astro';
 import Header from '../../components/Header.astro';
 import { SOCIAL_LINKS } from '../../consts';
-import { profilePageSchema } from '../../lib/schema';
+import { breadcrumbListSchema, profilePageSchema, SITE_URL } from '../../lib/schema';
 
 const pageUrl = new URL(Astro.url.pathname, Astro.site).toString();
+const breadcrumb = breadcrumbListSchema([
+	{ name: 'Главная', url: `${SITE_URL}/ru/` },
+	{ name: 'Обо мне', url: pageUrl },
+]);
 
 const experience = [
 	{
@@ -78,7 +82,7 @@ const talks = [
 			title="Обо мне — Иван Плешков"
 			description="Инженер в Qdrant. Опыт, доклады, контакты."
 			ogImage="/og/about.png"
-			pageSchema={profilePageSchema(pageUrl)}
+			pageSchema={[profilePageSchema(pageUrl), breadcrumb]}
 		/>
 	</head>
 	<body>

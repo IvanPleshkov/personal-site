@@ -17,11 +17,13 @@ export function personSchema() {
 		jobTitle: 'Software Engineer',
 		description:
 			'Software engineer at Qdrant working on the open-source vector search engine. Built GPU-accelerated HNSW indexing in Rust. Background in graphics engines, virtual reality, and computer vision (Wargaming, Eagle Dynamics).',
-		worksFor: {
-			'@type': 'Organization',
-			name: 'Qdrant',
-			url: 'https://qdrant.tech',
-		},
+		worksFor: [
+			{ '@type': 'Organization', name: 'Qdrant', url: 'https://qdrant.tech' },
+			{ '@type': 'Organization', name: 'ScienceSoft', url: 'https://scnsoft.com' },
+			{ '@type': 'Organization', name: 'Wargaming', url: 'https://wargaming.com' },
+			{ '@type': 'Organization', name: 'Eagle Dynamics' },
+			{ '@type': 'Organization', name: 'ACD/Labs', url: 'https://www.acdlabs.com' },
+		],
 		address: {
 			'@type': 'PostalAddress',
 			addressLocality: 'Magdeburg',
@@ -33,16 +35,13 @@ export function personSchema() {
 			url: 'https://bsu.by',
 		},
 		knowsAbout: [
-			'Rust programming language',
-			'GPU computing',
 			'Vector search',
 			'Approximate nearest neighbor search',
 			'HNSW algorithm',
+			'Vector quantization',
+			'GPU computing',
 			'Real-time graphics',
-			'Graphics engines',
-			'Computer vision',
-			'WebAssembly',
-			'C++',
+			'Rust programming language',
 		],
 		sameAs: [SOCIAL_LINKS.github, SOCIAL_LINKS.linkedin, SOCIAL_LINKS.telegram],
 		email: SOCIAL_LINKS.email,
@@ -72,6 +71,43 @@ export function profilePageSchema(pageUrl: string) {
 		mainEntity: { '@id': PERSON_ID },
 		about: { '@id': PERSON_ID },
 		isPartOf: { '@id': WEBSITE_ID },
+	};
+}
+
+export function collectionPageSchema(input: {
+	pageUrl: string;
+	name: string;
+	description: string;
+	inLanguage?: string;
+}) {
+	const { pageUrl, name, description, inLanguage = 'en' } = input;
+	return {
+		'@type': 'CollectionPage',
+		'@id': `${pageUrl}#page`,
+		url: pageUrl,
+		name,
+		description,
+		isPartOf: { '@id': WEBSITE_ID },
+		about: { '@id': PERSON_ID },
+		author: { '@id': PERSON_ID },
+		inLanguage,
+	};
+}
+
+export interface BreadcrumbItem {
+	name: string;
+	url: string;
+}
+
+export function breadcrumbListSchema(items: BreadcrumbItem[]) {
+	return {
+		'@type': 'BreadcrumbList',
+		itemListElement: items.map((item, index) => ({
+			'@type': 'ListItem',
+			position: index + 1,
+			name: item.name,
+			item: item.url,
+		})),
 	};
 }
 

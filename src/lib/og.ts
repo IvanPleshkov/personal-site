@@ -51,13 +51,13 @@ export interface OGOptions {
 }
 
 const COLORS = {
-	bg: '#f6f2e8',
-	rule: '#d9d2c1',
-	text: '#1a1816',
-	muted: '#6b6660',
-	subtle: '#a39d92',
-	accent: '#b8451e',
-	accentSoft: '#eed7c9',
+	bg: '#e8ecee',
+	rule: '#c5ccd1',
+	text: '#16202a',
+	muted: '#5b6772',
+	subtle: '#9aa3ac',
+	accent: '#8e5a3e',
+	accentSoft: '#e3d4ca',
 };
 
 function buildTree({ eyebrow, title, footer }: OGOptions): Parameters<typeof satori>[0] {
@@ -142,7 +142,7 @@ function buildTree({ eyebrow, title, footer }: OGOptions): Parameters<typeof sat
 							alignItems: 'center',
 							gap: 14,
 							paddingTop: 24,
-							borderTop: `1px dashed ${COLORS.rule}`,
+							borderTop: `1px solid ${COLORS.rule}`,
 							fontSize: 24,
 							color: COLORS.muted,
 						},

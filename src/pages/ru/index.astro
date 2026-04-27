@@ -2,6 +2,7 @@
 import BaseHead from '../../components/BaseHead.astro';
 import Footer from '../../components/Footer.astro';
 import Header from '../../components/Header.astro';
+import SectionMarker from '../../components/SectionMarker.astro';
 import { SITE_TITLE, SOCIAL_LINKS } from '../../consts';
 ---
 
@@ -33,7 +34,7 @@ import { SITE_TITLE, SOCIAL_LINKS } from '../../consts';
 
 			<section class="elsewhere">
 				<h2>
-					<span class="section-num">§</span> Где меня найти
+					<SectionMarker class="section-glyph" /> Где меня найти
 				</h2>
 				<ul class="link-list">
 					<li>
@@ -125,20 +126,18 @@ import { SITE_TITLE, SOCIAL_LINKS } from '../../consts';
 		margin-top: 0;
 		margin-bottom: 1em;
 	}
-	.section-num {
-		font-family: var(--font-mono);
-		font-style: normal;
-		font-size: 0.85em;
+	.elsewhere h2 :global(.section-glyph) {
 		color: var(--accent);
+		flex-shrink: 0;
 	}
 	.link-list {
 		list-style: none;
 		padding: 0;
 		margin: 0;
-		border-top: 1px dashed var(--rule);
+		border-top: 1px solid var(--text-muted);
 	}
 	.link-list li {
-		border-bottom: 1px dashed var(--rule);
+		border-bottom: 1px solid var(--rule);
 	}
 	.link-list a {
 		display: grid;

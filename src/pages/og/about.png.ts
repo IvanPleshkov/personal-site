@@ -3,7 +3,7 @@ import { renderOG } from '../../lib/og';
 
 export const GET: APIRoute = async () => {
 	const png = await renderOG({
-		eyebrow: '§ 03 about',
+		eyebrow: '03 · about',
 		title: 'About Ivan Pleshkov',
 		footer: 'software engineer · qdrant',
 	});

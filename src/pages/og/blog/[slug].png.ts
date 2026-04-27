@@ -13,7 +13,7 @@ export const getStaticPaths: GetStaticPaths = async () => {
 export const GET: APIRoute = async ({ props }) => {
 	const { title } = props as { title: string; description: string };
 	const png = await renderOG({
-		eyebrow: '§ 02 blog',
+		eyebrow: '02 · blog',
 		title,
 		footer: 'ivanpleshkov.dev/blog',
 	});

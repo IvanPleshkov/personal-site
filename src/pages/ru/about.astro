@@ -4,6 +4,7 @@ import portrait from '../../assets/portrait.jpeg';
 import BaseHead from '../../components/BaseHead.astro';
 import Footer from '../../components/Footer.astro';
 import Header from '../../components/Header.astro';
+import SectionMarker from '../../components/SectionMarker.astro';
 import { SOCIAL_LINKS } from '../../consts';
 import { breadcrumbListSchema, profilePageSchema, SITE_URL } from '../../lib/schema';
 
@@ -90,7 +91,7 @@ const talks = [
 		<Header />
 		<main>
 			<p class="eyebrow">
-				<span class="num">§ 03</span> Обо мне
+				<span class="num">03</span> Обо мне
 			</p>
 			<div class="hero">
 				<div class="hero-text">
@@ -128,7 +129,7 @@ const talks = [
 				сторону GPU.
 			</p>
 
-			<h2><span class="section-num">§</span> Опыт</h2>
+			<h2><SectionMarker class="section-glyph" /> Опыт</h2>
 			<ol class="timeline">
 				{
 					experience.map((job) => (
@@ -157,7 +158,7 @@ const talks = [
 				}
 			</ol>
 
-			<h2><span class="section-num">§</span> Проекты</h2>
+			<h2><SectionMarker class="section-glyph" /> Проекты</h2>
 			<ul class="projects">
 				{
 					projects.map((project) => (
@@ -175,7 +176,7 @@ const talks = [
 				}
 			</ul>
 
-			<h2><span class="section-num">§</span> Доклады</h2>
+			<h2><SectionMarker class="section-glyph" /> Доклады</h2>
 			<ul class="talks">
 				{
 					talks.map((talk) => (
@@ -190,7 +191,7 @@ const talks = [
 				}
 			</ul>
 
-			<h2><span class="section-num">§</span> Контакты</h2>
+			<h2><SectionMarker class="section-glyph" /> Контакты</h2>
 			<dl class="contact">
 				<dt>Email</dt>
 				<dd><a href={`mailto:${SOCIAL_LINKS.email}`}>{SOCIAL_LINKS.email}</a></dd>
@@ -296,22 +297,20 @@ const talks = [
 		margin-top: 2.6em;
 		margin-bottom: 1em;
 	}
-	.section-num {
-		font-family: var(--font-mono);
-		font-style: normal;
-		font-size: 0.85em;
+	h2 :global(.section-glyph) {
 		color: var(--accent);
+		flex-shrink: 0;
 	}
 
 	.timeline {
 		list-style: none;
 		padding: 0;
 		margin: 0;
-		border-top: 1px dashed var(--rule);
+		border-top: 1px solid var(--text-muted);
 	}
 	.timeline > li {
 		padding: 1.4em 0;
-		border-bottom: 1px dashed var(--rule);
+		border-bottom: 1px solid var(--rule);
 	}
 	.job-head {
 		display: flex;
@@ -366,10 +365,10 @@ const talks = [
 		list-style: none;
 		padding: 0;
 		margin: 0;
-		border-top: 1px dashed var(--rule);
+		border-top: 1px solid var(--text-muted);
 	}
 	.projects li {
-		border-bottom: 1px dashed var(--rule);
+		border-bottom: 1px solid var(--rule);
 	}
 	.projects a {
 		display: block;
@@ -415,10 +414,10 @@ const talks = [
 		list-style: none;
 		padding: 0;
 		margin: 0;
-		border-top: 1px dashed var(--rule);
+		border-top: 1px solid var(--text-muted);
 	}
 	.talks li {
-		border-bottom: 1px dashed var(--rule);
+		border-bottom: 1px solid var(--rule);
 	}
 	.talks a {
 		display: grid;
@@ -457,7 +456,7 @@ const talks = [
 		font-family: var(--font-mono);
 		font-size: 14px;
 		margin: 0;
-		border-top: 1px dashed var(--rule);
+		border-top: 1px solid var(--text-muted);
 		padding-top: 1em;
 	}
 	.contact dt {

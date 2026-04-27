@@ -1,41 +1,42 @@
 /*
-  Editorial style — warm paper light theme, graphite dark theme.
+  Cool linen paper / oxford-graphite palette with one warm pop (burnt sienna ember).
+  Composition rule: ~70% cool dominant, ~25% mid tones, ~5% accent — concept-art "limited palette".
   Display: Newsreader (italic-heavy serif). Body: Inter. Mono: JetBrains Mono.
 */
 
 :root,
 :root[data-theme='light'] {
-	--bg: #f6f2e8;
-	--bg-elevated: #fbf8ef;
-	--text: #1a1816;
-	--text-muted: #6b6660;
-	--text-subtle: #a39d92;
-	--rule: #d9d2c1;
-	--accent: #b8451e;
-	--accent-soft: rgba(184, 69, 30, 0.12);
+	--bg: #e8ecee;
+	--bg-elevated: #f0f3f5;
+	--text: #16202a;
+	--text-muted: #5b6772;
+	--text-subtle: #9aa3ac;
+	--rule: #c5ccd1;
+	--accent: #8e5a3e;
+	--accent-soft: rgba(142, 90, 62, 0.1);
 }
 
 :root[data-theme='dark'] {
-	--bg: #14130f;
-	--bg-elevated: #1c1b16;
-	--text: #ece8de;
-	--text-muted: #9a9285;
-	--text-subtle: #5e574d;
-	--rule: #2d2a23;
-	--accent: #f59e3c;
-	--accent-soft: rgba(245, 158, 60, 0.16);
+	--bg: #0f141a;
+	--bg-elevated: #161c24;
+	--text: #dde3e9;
+	--text-muted: #7e8893;
+	--text-subtle: #4d5660;
+	--rule: #232b35;
+	--accent: #d39068;
+	--accent-soft: rgba(211, 144, 104, 0.14);
 }
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme='light']):not([data-theme='dark']) {
-		--bg: #14130f;
-		--bg-elevated: #1c1b16;
-		--text: #ece8de;
-		--text-muted: #9a9285;
-		--text-subtle: #5e574d;
-		--rule: #2d2a23;
-		--accent: #f59e3c;
-		--accent-soft: rgba(245, 158, 60, 0.16);
+		--bg: #0f141a;
+		--bg-elevated: #161c24;
+		--text: #dde3e9;
+		--text-muted: #7e8893;
+		--text-subtle: #4d5660;
+		--rule: #232b35;
+		--accent: #d39068;
+		--accent-soft: rgba(211, 144, 104, 0.14);
 	}
 }
 
@@ -184,7 +185,7 @@ blockquote {
 
 hr {
 	border: none;
-	border-top: 1px dashed var(--rule);
+	border-top: 1px solid var(--rule);
 	margin: 3em 0;
 }
 

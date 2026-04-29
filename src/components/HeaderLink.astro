@@ -4,9 +4,21 @@ import type { HTMLAttributes } from 'astro/types';
 type Props = HTMLAttributes<'a'>;
 
 const { href, class: className, ...props } = Astro.props;
+
 const pathname = Astro.url.pathname.replace(import.meta.env.BASE_URL, '');
-const subpath = pathname.match(/[^\/]+/g);
-const isActive = href === pathname || href === '/' + (subpath?.[0] || '');
+const hrefStr = typeof href === 'string' ? href : '';
+
+// Strip trailing slash to compare consistently. `/` and `/ru/` become `''` and `/ru`.
+const normalize = (p: string) => (p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p);
+const normalizedHref = normalize(hrefStr === '/' ? '' : hrefStr);
+const normalizedPath = normalize(pathname === '/' ? '' : pathname);
+
+// A home link is `/` (-> '') or `/<locale>/` (-> '/ru'). For those we only mark active on
+// exact match — otherwise the home link would light up on every nested page in that locale.
+const isHomeLink = normalizedHref === '' || /^\/[a-z]{2}$/.test(normalizedHref);
+const isActive = isHomeLink
+	? normalizedHref === normalizedPath
+	: normalizedHref === normalizedPath || normalizedPath.startsWith(`${normalizedHref}/`);
 ---
 
 <a href={href} class:list={[className, { active: isActive }]} {...props}>

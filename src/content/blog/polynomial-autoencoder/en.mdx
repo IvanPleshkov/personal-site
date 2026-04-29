@@ -1,0 +1,421 @@
+---
+title: "A polynomial autoencoder beats PCA on transformer embeddings"
+description: "An autoencoder with a linear encoder (PCA) and a quadratic decoder. On anisotropic embeddings it recovers 9–13 percentage points more R² than linear PCA at the same per-vector budget. No SGD, no neural networks."
+pubDate: 2026-04-30
+tags: ["embeddings", "pca", "autoencoder", "quantization"]
+---
+
+
+Transformer embeddings have a well-known property — **anisotropy**. They
+concentrate inside a narrow cone on the unit sphere, a few directions
+carry most of the variance, and the rest carry almost nothing. What's
+less discussed: part of this anisotropy is **non-linear**, and a linear
+PCA can't see it.
+
+This post is about an autoencoder that can. Encoder is linear (top-d
+PCA), decoder is quadratic (polynomial lift + Ridge OLS). No SGD, no
+epochs. Encoder is plain PCA, decoder is one `np.linalg.solve`. On 100K
+vectors at d=100 the entire pipeline runs in a couple of minutes on
+CPU.
+
+```
+encoder:   p = (V - V̄) @ Q                   # linear, via PCA
+decoder:   V̂ = polynomial_lift(p) @ W + b    # quadratic, via Ridge
+residual:  V_resid = V - V̂
+```
+
+I ran this on eight embeddings — from classical word vectors all the
+way to OpenAI ada-002, CLIP, and sentence-T5:
+
+| Embedding          | D    | N    | cond(V) | d   | PCA R² | **Polynomial R²_test** | Δ over PCA       |
+|--------------------|------|------|---------|-----|--------|---------------------|-------------------|
+| OpenAI ada-002     | 1536 | 100K | 72      | 100 | 0.61   | **0.729**           | **+12.0 p.p.**    |
+| sentence-T5 base   | 768  | 20K  | 64      | 50  | 0.56   | **0.668**           | **+11.2 p.p.**    |
+| deep-image-96 (CNN)| 96   | 100K | 52      | 20  | 0.54   | **0.672**           | **+13.4 p.p.**    |
+| MiniLM-L6          | 384  | 20K  | 50      | 40  | 0.45   | **0.547**           | **+9.5 p.p.**     |
+| mpnet-base         | 768  | 20K  | 49      | 50  | 0.48   | **0.598**           | **+12.2 p.p.**    |
+| CLIP-text (B/32)   | 512  | 20K  | 48      | 40  | 0.44   | **0.551**           | **+10.7 p.p.**    |
+| glove-100          | 100  | 100K | 6.5     | 50  | 0.60   | 0.617               | +1.4 p.p.         |
+| nytimes-256        | 256  | 100K | 3.2     | 100 | 0.49   | 0.500               | +1.0 p.p.         |
+
+<picture>
+  <source srcset="/blog/polynomial-autoencoder/images/scatter_cond_vs_delta_en_dark.svg" media="(prefers-color-scheme: dark)" />
+  <img src="/blog/polynomial-autoencoder/images/scatter_cond_vs_delta_en_light.svg" alt="Scatter: cond(V) vs Δ R² across 8 embeddings — two clusters with empty space in between" />
+</picture>
+
+The picture is the same on every **anisotropic** embedding: the
+polynomial autoencoder extracts 9–13 p.p. more R² than linear PCA. It
+works the same way on
+modern text transformers (ada-002, MiniLM, mpnet, sentence-T5), on
+CLIP-text, and on CNN image features from ANN-Benchmarks. On the
+already-isotropic GloVe and nytimes-256, the improvement is within
+noise: there's nothing left for the polynomial decoder to grab — linear
+PCA is already pulling almost everything.
+
+Full implementation — ~150 lines of numpy, MIT, repository:
+[github.com/IvanPleshkov/poly-autoencoder](https://github.com/IvanPleshkov/poly-autoencoder).
+Reproduces in a couple of minutes on CPU at d=100. If you're curious,
+you can run it on your own embeddings right now and verify the numbers.
+
+## 1. The idea — PCA is linear, the data isn't
+
+PCA is, in essence, a closed-form linear autoencoder: the encoder
+projects a vector onto the top-d eigenvectors of the covariance matrix,
+the decoder applies the inverse projection plus the mean. Both encode
+and decode are matrix multiplications. Linear operations — and that's
+enough, **as long as the data itself sits inside a linear ellipsoid**.
+
+Modern neural-network embeddings don't sit in a linear ellipsoid. They
+lie on a non-linear manifold — the well-known **cone effect** in
+transformers: the cloud is concentrated in a narrow cone on the sphere
+and is heavily non-linearly structured inside that cone.
+
+<picture>
+  <source srcset="/blog/polynomial-autoencoder/images/cone_effect_en_dark.svg" media="(prefers-color-scheme: dark)" />
+  <img src="/blog/polynomial-autoencoder/images/cone_effect_en_light.svg" alt="Cone effect: embeddings concentrated in a narrow cone on the unit sphere" />
+</picture>
+
+A linear decoder can't track that curvature — it only catches
+projections along the orthogonal eigenvectors of the covariance.
+Whatever sits along non-linear directions is invisible to it.
+
+The idea of this post: **switch to a non-linear decoder**, but in a way
+that keeps the pipeline closed-form (no neural network training, no
+hyperparameter search). Concretely: lift the PCA projection into all
+polynomial monomials of degree 2 and run linear regression in this
+expanded space. That's equivalent to a quadratic decoder. **Moving up
+into a higher-dimensional linear space** compensates for the
+non-linearity of the data, and the whole pipeline collapses to a single
+`np.linalg.solve` on top of an ordinary PCA.
+
+## 2. Disclaimer — old method, new mode
+
+After I'd already finished all the experiments, it turned out that
+regression on polynomial PCA features is the long-known **PPCR**
+(Polynomial Principal Component Regression), described back in
+[1989](https://www.sciencedirect.com/science/article/abs/pii/0169743989801169)
+in chemometrics. PPCR is applied as a **supervised** regression of PCA
+features onto an external target `Y` (reactor yield, toxicity, profit).
+It hasn't really made it into the modern ML toolbox.
+
+What I'm contributing:
+
+1. **Substituting `Y := X`** — the input vector itself becomes the
+   target, and that substitution turns a supervised regression into a
+   self-reconstruction, i.e. an autoencoder. I haven't found this
+   closed-form autoencoder applied to anisotropy in transformer
+   embeddings anywhere.
+2. **Applying it to modern neural-network embeddings** (transformers,
+   CLIP, deep image features) and measuring R² along with the
+   correlation between the gain and anisotropy.
+
+So the method itself is decades old, just from a non-ML field. Turning
+it into an autoencoder via the `Y := X` substitution and validating
+that on modern embeddings is what's new here. Treat this post as an
+experimental measurement of a known method in a new mode (autoencoding).
+
+---
+
+What follows are the details. §3 below is a quick recap of linear PCA
+and its ceiling for full context; if you're already familiar with PCA,
+you can jump straight to §4, where the polynomial part unfolds.
+
+## 3. Linear PCA — baseline and its ceiling
+
+The standard way to measure anisotropy is the condition number of the
+**centered** covariance, `λ_max / λ_min`. One nuance: the tail of the
+full spectrum sits at the level of floating-point noise (~10⁻¹⁵), and
+including it makes cond explode. So everywhere in this post cond is
+taken over the top-200 directions — a stable quantity that reflects
+real structure rather than FP noise. On DBpedia-OpenAI (D=1536, N=100K,
+L2-normalized to the unit sphere) `cond ≈ 72` — a heavily elongated
+ellipsoid.
+
+For the baseline I take top-d PCA — a closed-form linear autoencoder:
+the encoder projects a vector onto the top-d eigenvectors of the
+covariance, the decoder applies the inverse projection plus the mean.
+`V_proj ∈ ℝ^d` is stored per-vector (`d × 2` bytes in fp16),
+`Q ∈ ℝ^{D × d}` is a global matrix, amortized across N. The explained
+variance ratio `R²` on DBpedia at different `d`:
+
+| d   | R²    | cond(V_resid) | bytes/vector (V_proj fp16) |
+|-----|-------|---------------|----------------------------|
+| 50  | 0.44  | 5.94          | 100                        |
+| 100 | 0.61  | 4.21          | 200                        |
+| 200 | 0.77  | 2.73          | 400                        |
+
+At `d=100`, 39% of the variance ends up in an unstructured residual.
+PCA is a linear operator, and that remainder is something it
+geometrically can't capture.
+
+## 4. Architecture — linear encoder, quadratic decoder
+
+Back to the idea: "non-linear decoder by moving into a
+higher-dimensional linear space." This is a standard technique in
+regression theory. If you want to fit data with a quadratic function,
+you can either fit the quadratic model directly (non-linear
+optimization), or — much more conveniently — **first compute all the
+quadratic combinations of the inputs and then run an ordinary linear
+regression on them**. That's exactly what a **polynomial lift** does:
+a low-dimensional coordinate is lifted into a higher-dimensional space
+where the quadratic dependency turns into a linear one.
+
+A concrete example. Take a two-dimensional vector `p` with coordinates
+`p₁` and `p₂` — just a pair of numbers. The degree-2 lift turns it
+into a 6-dimensional vector:
+
+```
+lift([p₁, p₂]) = [1,   p₁, p₂,   p₁², p₁·p₂, p₂²]
+                  ↑    ↑   ↑     ↑    ↑      ↑
+                bias  linear     quadratic
+                                 (including cross-terms)
+```
+
+Any linear combination of these six components is a **quadratic
+function** of the original `p₁, p₂`. In other words, **linear
+regression on the lift = quadratic regression in the original space**.
+No non-linear optimization needed — it all reduces to a closed-form
+Ridge OLS.
+
+Now we apply this to our case. Encoder — top-d PCA
+(`p = (V − V̄) @ Q`, `p ∈ ℝ^d`). We lift `p` into all monomials up to
+degree 2 (bias, linear, pairwise products, and squares):
+
+```python
+def polynomial_lift(p, degree=2):
+    features = [1.0]                              # bias
+    features.extend(p)                            # degree 1
+    for i in range(len(p)):
+        for j in range(i, len(p)):
+            features.append(p[i] * p[j])          # degree 2
+    return np.array(features)
+```
+
+Lift dimension is `M = (d+1)(d+2)/2`. For `d=100` that's `M = 5151`,
+for `d=200` it's `M = 20301`. The decoder is a linear regression from
+the M-dimensional lift back to the D-dimensional original vector.
+Despite being "ordinary linear regression", the resulting map
+`p → V̂` is already quadratic — exactly what we wanted.
+
+Training the decoder is one `np.linalg.solve`:
+
+```python
+def fit_decoder(P, V, lam=1e-3):
+    L = polynomial_lift(P, degree=2)               # (N, M)
+    G = L.T @ L + lam * np.trace(L.T @ L) / L.shape[1] * np.eye(L.shape[1])
+    W = np.linalg.solve(G, L.T @ V)
+    return W
+```
+
+What we end up with is a **polynomial autoencoder**:
+
+<picture>
+  <source srcset="/blog/polynomial-autoencoder/images/ae_schema_en_dark.svg" media="(prefers-color-scheme: dark)" />
+  <img src="/blog/polynomial-autoencoder/images/ae_schema_en_light.svg" alt="Polynomial autoencoder schema: V → PCA → p → poly lift → L → Ridge OLS → V̂; V − V̂ → V_resid" />
+</picture>
+
+- **encoder** — closed-form linear (PCA), no training,
+- **decoder** — closed-form quadratic (Ridge OLS on the polynomial
+  lift), trained by a single `np.linalg.solve` on ~5K-20K features,
+- **reconstruction** — `V̂ = polynomial_lift(p) @ W + b`,
+- **residual** — `V_resid = V − V̂` (a natural side-product).
+
+No backprop, no learning rate, no batch size, no epochs. No non-linear
+activations. On N=100K with d=100 — minutes on CPU.
+
+### Why this combination is rare in modern ML
+
+Curious thing: **polynomial lifts** are uncommon in modern ML. They
+historically developed in two distinct disciplines that barely overlap.
+
+On one side — **kernel methods**: SVM, Gaussian processes, kernel PCA.
+There the lift is implicit, hidden behind the kernel trick — we never
+actually compute the `M = (d+1)(d+2)/2` monomials, we evaluate the
+kernel function `(1 + x·y)²` directly. It works on small datasets but
+doesn't scale to millions of points, and it has therefore fallen out
+of DL-embedding practice.
+
+On the other side — **classical applied statistics**: response surface
+methodology ([Box & Wilson
+1951](https://en.wikipedia.org/wiki/Response_surface_methodology)),
+PPCR ([Vong, Geladi, Wold & Esbensen
+1989](https://www.sciencedirect.com/science/article/abs/pii/0169743989801169))
+from chemometrics. There the lift is explicit, the regression is
+linear, everything works — but it's only used as a **supervised**
+regression onto an external target. It barely registers in modern ML
+practice either.
+
+In the autoencoder literature, by contrast, decoders are built as
+**trainable neural networks**. I haven't run into closed-form
+polynomial decoders in either the transformer-anisotropy literature
+([All-But-The-Top](https://openreview.net/forum?id=HkuGJ3kCb), BERT-flow,
+ZCA whitening, [Stable Anisotropic
+Regularization](https://openreview.net/pdf?id=dbQH9AOVd5) — all linear)
+or in the general autoencoder literature.
+
+So our configuration sits at the intersection of three traditions:
+explicit polynomial lift + autoencoder mode + modern neural-network
+embeddings.
+
+### One technical detail
+
+Raw `V_proj` after PCA has huge anisotropy along its own coordinates
+(the first axis carries about 50× the variance of the last) — that's
+bad for Ridge: the large axes dominate the solution and the small ones
+are starved of weight. The fix is per-axis normalization to unit
+variance:
+
+```python
+V_normed = V_proj / np.sqrt(eigvals[-d:])
+P = V_normed * (0.9 / np.linalg.norm(V_normed, axis=1).max())
+```
+
+The global multiplier `0.9 / max-norm` keeps `‖p‖ ≤ 0.9` — a safety
+margin for numerical stability when squaring. It doesn't affect R²,
+but it's numerically cleaner.
+
+## 5. Holdout measurement
+
+With `M = 20K` features and `N = 100K` training vectors, the first
+question is: is this overfitting? The standard sanity check — an
+80/20 train/test split. All PCA statistics (centered mean, eigvecs,
+std, ball scale) and Ridge weights come from train only. We apply them
+to the held-out test set, and compute R² against the centered baseline
+`(V_test - mean_train)²` — the same baseline for both linear PCA and
+the polynomial decoder.
+
+```python
+rng = np.random.default_rng(42)
+perm = rng.permutation(N)
+V_train = V[perm[:80_000]]
+V_test  = V[perm[80_000:]]
+
+stats   = fit_pca_stats(V_train, d)
+P_train = apply_pca_init(V_train, stats)
+P_test  = apply_pca_init(V_test, stats)
+
+L_train = polynomial_lift(P_train, degree=2)
+L_test  = polynomial_lift(P_test,  degree=2)
+
+W, b    = fit_ridge(L_train, V_train, lam=1e-3)
+
+R²_train = 1 - sse(V_train, L_train @ W + b) / sst(V_train)
+R²_test  = 1 - sse(V_test,  L_test  @ W + b) / sst(V_test)
+```
+
+Results:
+
+| d   | M     | R²_train | R²_test | Δ overfit | cond(V_resid)_test |
+|-----|-------|----------|---------|-----------|---------------------|
+| 50  | 1326  | 0.581    | 0.567   | +0.014    | 4.81                |
+| 100 | 5151  | 0.762    | 0.729   | +0.033    | 3.42                |
+| 200 | 20301 | 0.907    | 0.829   | +0.078    | 2.24                |
+
+Compared to a linear PCA at the same `d`:
+
+| d   | PCA R² | **Polynomial R²_test** | gain          |
+|-----|--------|------------------------|---------------|
+| 50  | 0.44   | **0.567**              | **+12.7 p.p.** |
+| 100 | 0.61   | **0.729**              | **+12.0 p.p.** |
+| 200 | 0.77   | **0.829**              | **+5.9 p.p.**  |
+
+The quadratic decoder beats linear PCA on holdout everywhere — by
+6–13 percentage points of variance at the same per-vector budget.
+
+**What this tells us about DBpedia:**
+
+- **`d=100` — the sweet spot.** R²_test = 0.73 versus 0.61 for PCA —
+  +12 p.p. at the same 200 bytes per vector. Overfit is minimal
+  (+0.03). Equivalent to having a PCA with `d ≈ 160`.
+- **`d=200` — ceiling and overfit.** Train R² = 0.91, test R² = 0.83.
+  Δ = 8 p.p. M = 20K ≈ 5× training vectors — Ridge still holds, but
+  the margin is shrinking. On indices with 1M+ vectors the overfit
+  should collapse, but we don't have that much data.
+- **Residual anisotropy doesn't overfit.** `cond(V_resid)` is a
+  stable characteristic — train/test discrepancy ≤ 0.1 at every `d`.
+  "The residual becomes isotropic" is a real property of the data, not
+  a fitting artifact. At `d=100`, cond drops from 72 to 3.4.
+
+One caveat about N. For the four transformers in the headline table
+(sentence-T5, MiniLM, mpnet, CLIP) I encoded a 20K subsample of DBpedia
+text to save time. At that N, the polynomial decoder starts overfitting
+once `d ≳ 100`, and the optimal `d` shifts toward smaller values
+(hence `d` of 40–50 in those rows, not 100). On the full N=100K the
+numbers in those rows would be a touch higher, but the **qualitative
+gap** between anisotropic and isotropic embeddings doesn't depend on N.
+
+## 6. Compressing embeddings
+
+The autoencoder by itself doesn't compress anything. It just
+re-packages the vector into the pair `(latent coordinate p, residual
+V_resid)` — the same information, just in a different form. To get
+real compression, you still need to quantize the residual. And here
+the anisotropy-killing property of our autoencoder pays off nicely: on DBpedia
+at `d=100`, `cond(V_resid)` falls from 72 down to 3.4 — an almost
+isotropic residual. Linear PCA at the same `d` gives cond=4.21 — also
+more isotropic than the input, but visibly less so.
+
+Google Research recently published
+[**TurboQuant**](https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/) —
+a quantizer with a fixed random rotation that on isotropic
+distributions **comes close to the theoretical compression limit**
+(Shannon rate-distortion for Gaussians). The autoencoder removes the
+anisotropy, TurboQuant efficiently quantizes the now-isotropic
+residual.
+
+The full loop looks like this:
+
+```
+V  ──►  encoder (PCA)  ──►  p
+        │
+        decoder (poly+Ridge)  ──►  V̂
+        │
+V  −  V̂  ──►  V_resid  ──►  TurboQuant  ──►  compact code
+```
+
+If you're curious, you can try this yourself. Pull up PCA + polynomial
+lift (code in the
+[repo](https://github.com/IvanPleshkov/poly-autoencoder)), run a
+2-bit TurboQuant on the residual, and measure recall on an ANN-search
+task. You should get something reasonable: the hybrid `V̂ + 2-bit
+Quant(V_resid)` at a budget of ~600 bytes/vector gives R@10 ≈ 0.96 on
+100 queries from DBpedia.
+
+But that recall will most likely fall short of a **modified TurboQuant
+with anisotropy compensation** — the version that ships in
+[Qdrant](https://qdrant.tech/) 1.18.0, currently being prepared for
+release. I'll cover that one, along with all the other tricks I used
+while implementing TurboQuant for vector search in Qdrant, in the
+**next post**.
+
+## 7. What to try next
+
+Two directions worth digging into:
+
+- **Fill the gap between anisotropic and isotropic models.** We have
+  6 points on the anisotropic side (cond ∈ [48, 72], gain
+  +9.5–13.4 p.p.) and 2 on the isotropic side (cond ≤ 7, gain
+  ≤ 2 p.p.). Nothing in between. Are there models with cond ~ 10–30,
+  and what does the gain look like there — a smooth transition or a
+  hard threshold? To draw a real curve you'd want ~10–20 embeddings,
+  with the most interesting points right in the middle of the gap.
+- **Polynomial lift of degree 3.** Here the decoder works on a basis
+  of `M = (d+1)(d+2)/2` quadratic monomials. Lifting up to cubic gives
+  `M = O(d³)` and could in theory catch even more elaborate non-linear
+  structure. The cost is the explosion of the basis (at d=100 already
+  `M ≈ 175K`) and the risk of overfit on small N. The interesting
+  question is: at what d/N does degree 3 actually start to help, and
+  is there a maximum useful degree, and if so, does it depend on the
+  embedding?
+
+All scripts — loaders for the classical datasets (DBpedia-OpenAI,
+deep-image-96, glove-100, nytimes-256), encoders for modern
+transformers (sentence-T5, mpnet, MiniLM, CLIP-text), PCA-init with
+per-axis std normalization, polynomial lift, Ridge OLS, 80/20 holdout —
+live in the
+[repository](https://github.com/IvanPleshkov/poly-autoencoder). A full
+pass over one dataset at `d=100` takes about 2 minutes on CPU; at
+`d=200` it's about 6 minutes (the decoder fit with M ≈ 20K features
+dominates). Encoding 20K texts with a modern transformer takes 1–6
+minutes on an M-series MacBook (MiniLM is the fastest, T5/mpnet the
+slowest).

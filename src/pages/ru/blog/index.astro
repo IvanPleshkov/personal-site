@@ -1,41 +1,42 @@
 ---
 import { getCollection } from 'astro:content';
-import BaseHead from '../../components/BaseHead.astro';
-import Footer from '../../components/Footer.astro';
-import FormattedDate from '../../components/FormattedDate.astro';
-import Header from '../../components/Header.astro';
-import { SITE_TITLE } from '../../consts';
+import BaseHead from '../../../components/BaseHead.astro';
+import Footer from '../../../components/Footer.astro';
+import FormattedDate from '../../../components/FormattedDate.astro';
+import Header from '../../../components/Header.astro';
+import { SITE_TITLE } from '../../../consts';
 import {
 	breadcrumbListSchema,
 	collectionPageSchema,
 	SITE_URL,
-} from '../../lib/schema';
+} from '../../../lib/schema';
 
 const all = await getCollection('blog');
 const posts = all
-	.filter((p) => p.id.endsWith('/en'))
-	.map((p) => ({ post: p, slug: p.id.replace(/\/en$/, '') }))
+	.filter((p) => p.id.endsWith('/ru'))
+	.map((p) => ({ post: p, slug: p.id.replace(/\/ru$/, '') }))
 	.sort((a, b) => b.post.data.pubDate.valueOf() - a.post.data.pubDate.valueOf());
 
 const pageUrl = new URL(Astro.url.pathname, Astro.site).toString();
 const collection = collectionPageSchema({
 	pageUrl,
-	name: `Blog — ${SITE_TITLE}`,
-	description: 'Notes from Ivan Pleshkov on Rust, GPU, vector search, and graphics.',
+	name: `Блог — ${SITE_TITLE}`,
+	description: 'Заметки про Rust, GPU, векторный поиск и графику.',
+	inLanguage: 'ru',
 });
 const breadcrumb = breadcrumbListSchema([
-	{ name: 'Home', url: `${SITE_URL}/` },
-	{ name: 'Blog', url: pageUrl },
+	{ name: 'Главная', url: `${SITE_URL}/ru/` },
+	{ name: 'Блог', url: pageUrl },
 ]);
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 	<head>
 		<BaseHead
-			title={`Blog — ${SITE_TITLE}`}
-			description="Notes from Ivan Pleshkov on Rust, GPU, vector search, and graphics."
-			ogImage="/og/blog.png"
+			title={`Блог — ${SITE_TITLE}`}
+			description="Заметки про Rust, GPU, векторный поиск и графику."
+			ogImage="/og/ru/blog.png"
 			pageSchema={[collection, breadcrumb]}
 			bilingual
 		/>
@@ -44,24 +45,24 @@ const breadcrumb = breadcrumbListSchema([
 		<Header />
 		<main>
 			<p class="eyebrow">
-				<span class="num">02</span> Blog
+				<span class="num">02</span> Блог
 			</p>
-			<h1><em>Notes</em>.</h1>
+			<h1><em>Заметки</em>.</h1>
 			<p class="lede">
-				Long-form thoughts on Rust, GPU, vector search, and the occasional graphics aside.
+				Длинные мысли про Rust, GPU, векторный поиск и иногда — про графику.
 			</p>
 
 			{
 				posts.length === 0 ? (
 					<div class="empty">
-						<p class="empty-line">[ no posts yet ]</p>
-						<p class="empty-hint">First one is on the way.</p>
+						<p class="empty-line">[ постов пока нет ]</p>
+						<p class="empty-hint">Первый — на подходе.</p>
 					</div>
 				) : (
 					<ol class="posts">
 						{posts.map(({ post, slug }) => (
 							<li>
-								<a href={`/blog/${slug}/`}>
+								<a href={`/ru/blog/${slug}/`}>
 									<span class="date">
 										<FormattedDate date={post.data.pubDate} />
 									</span>

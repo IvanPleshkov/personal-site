@@ -8,7 +8,14 @@ const FONT_CACHE = join(process.cwd(), 'node_modules', '.cache', 'og-fonts');
 const TTF_UA =
 	'Mozilla/5.0 (Linux; U; Android 2.3.6; en-us; Nexus S Build/GRK39F) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1';
 
-async function fetchGoogleFontTTF(family: string, weight: number, italic = false): Promise<Buffer> {
+// Display font for OG = Lora (italic) instead of Newsreader. Newsreader has no Cyrillic
+// glyphs at all, so RU titles would render as missing-glyph boxes. Lora is a similar
+// italic display serif that ships full Latin + Cyrillic in a single TTF.
+async function fetchGoogleFontTTF(
+	family: string,
+	weight: number,
+	italic: boolean,
+): Promise<Buffer> {
 	const fileName = `${family.replace(/\s+/g, '-')}-${weight}${italic ? '-italic' : ''}.ttf`;
 	const cachePath = join(FONT_CACHE, fileName);
 	try {
@@ -16,7 +23,10 @@ async function fetchGoogleFontTTF(family: string, weight: number, italic = false
 	} catch {
 		// fall through to fetch
 	}
-	const cssUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:ital,wght@${italic ? 1 : 0},${weight}&display=swap`;
+	const styleSuffix = italic ? 'italic' : '';
+	// Asking for `subset=latin,cyrillic` from the legacy CSS endpoint (with old UA → TTF)
+	// returns one file containing glyphs for both subsets.
+	const cssUrl = `https://fonts.googleapis.com/css?family=${encodeURIComponent(family)}:${weight}${styleSuffix}&subset=latin,cyrillic`;
 	const css = await fetch(cssUrl, { headers: { 'User-Agent': TTF_UA } }).then((r) => r.text());
 	const ttfUrl = css.match(/url\(([^)]+\.ttf)\)/)?.[1];
 	if (!ttfUrl) {
@@ -33,12 +43,12 @@ async function fetchGoogleFontTTF(family: string, weight: number, italic = false
 let cachedFonts: Awaited<ReturnType<typeof loadFonts>> | null = null;
 async function loadFonts() {
 	if (cachedFonts) return cachedFonts;
-	const [serifItalic, monoMedium] = await Promise.all([
-		fetchGoogleFontTTF('Newsreader', 400, true),
+	const [displayItalic, monoMedium] = await Promise.all([
+		fetchGoogleFontTTF('Lora', 400, true),
 		fetchGoogleFontTTF('JetBrains Mono', 500, false),
 	]);
 	cachedFonts = [
-		{ name: 'Newsreader', data: serifItalic, weight: 400 as const, style: 'italic' as const },
+		{ name: 'Display', data: displayItalic, weight: 400 as const, style: 'italic' as const },
 		{ name: 'JetBrains Mono', data: monoMedium, weight: 500 as const, style: 'normal' as const },
 	];
 	return cachedFonts;
@@ -60,7 +70,18 @@ const COLORS = {
 	accentSoft: '#e3d4ca',
 };
 
+// Fit the title into the OG canvas — long headlines need to step down a font size or two.
+function pickTitleFontSize(title: string): number {
+	const len = title.length;
+	if (len <= 22) return 120;
+	if (len <= 36) return 100;
+	if (len <= 52) return 84;
+	if (len <= 72) return 68;
+	return 56;
+}
+
 function buildTree({ eyebrow, title, footer }: OGOptions): Parameters<typeof satori>[0] {
+	const titleFontSize = pickTitleFontSize(title);
 	return {
 		type: 'div',
 		props: {
@@ -122,9 +143,9 @@ function buildTree({ eyebrow, title, footer }: OGOptions): Parameters<typeof sat
 					props: {
 						style: {
 							display: 'flex',
-							fontFamily: 'Newsreader',
+							fontFamily: 'Display',
 							fontStyle: 'italic',
-							fontSize: 110,
+							fontSize: titleFontSize,
 							lineHeight: 1.05,
 							color: COLORS.text,
 							letterSpacing: '-0.02em',

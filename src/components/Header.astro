@@ -7,7 +7,7 @@ const lang = getLangFromUrl(Astro.url);
 const t = useTranslations(lang);
 const homeHref = lang === 'ru' ? '/ru/' : '/';
 const aboutHref = lang === 'ru' ? '/ru/about' : '/about';
-const blogHref = '/blog';
+const blogHref = lang === 'ru' ? '/ru/blog' : '/blog';
 const alternate = getAlternateLocale(Astro.url.pathname);
 const altLabel = alternate.lang.toUpperCase();
 ---

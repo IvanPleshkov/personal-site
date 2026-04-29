@@ -7,11 +7,34 @@ import FormattedDate from '../components/FormattedDate.astro';
 import Header from '../components/Header.astro';
 import { blogPostingSchema, breadcrumbListSchema, SITE_URL } from '../lib/schema';
 
-type Props = CollectionEntry<'blog'>['data'] & { slug: string };
+type Props = CollectionEntry<'blog'>['data'] & {
+	slug: string;
+	lang: 'en' | 'ru';
+	hasTranslation?: boolean;
+};
 
-const { title, description, pubDate, updatedDate, heroImage, slug } = Astro.props;
+const {
+	title,
+	description,
+	pubDate,
+	updatedDate,
+	heroImage,
+	tags,
+	slug,
+	lang,
+	hasTranslation = false,
+} = Astro.props;
+
+const isRu = lang === 'ru';
+const blogIndexPath = isRu ? '/ru/blog/' : '/blog/';
+const blogIndexLabel = isRu ? 'Блог' : 'Blog';
+const updatedLabel = isRu ? 'обновлено' : 'updated';
+const backLabel = isRu ? '← к списку заметок' : '← back to all notes';
+const homeLabel = isRu ? 'Главная' : 'Home';
+const homeUrl = isRu ? `${SITE_URL}/ru/` : `${SITE_URL}/`;
+
 const pageUrl = new URL(Astro.url.pathname, Astro.site).toString();
-const ogImage = `/og/blog/${slug}.png`;
+const ogImage = `/og/blog/${lang}/${slug}.png`;
 const ogImageUrl = new URL(ogImage, Astro.site).toString();
 const postSchema = blogPostingSchema({
 	pageUrl,
@@ -20,21 +43,23 @@ const postSchema = blogPostingSchema({
 	pubDate,
 	updatedDate,
 	imageUrl: ogImageUrl,
+	keywords: tags,
 });
 const breadcrumb = breadcrumbListSchema([
-	{ name: 'Home', url: `${SITE_URL}/` },
-	{ name: 'Blog', url: `${SITE_URL}/blog/` },
+	{ name: homeLabel, url: homeUrl },
+	{ name: blogIndexLabel, url: `${SITE_URL}${blogIndexPath}` },
 	{ name: title, url: pageUrl },
 ]);
 ---
 
-<html lang="en">
+<html lang={lang}>
 	<head>
 		<BaseHead
 			title={title}
 			description={description}
 			ogImage={ogImage}
 			pageSchema={[postSchema, breadcrumb]}
+			bilingual={hasTranslation}
 		/>
 	</head>
 
@@ -44,7 +69,7 @@ const breadcrumb = breadcrumbListSchema([
 			<article>
 				<p class="eyebrow">
 					<span class="num">02</span>
-					<a href="/blog">Blog</a>
+					<a href={blogIndexPath}>{blogIndexLabel}</a>
 				</p>
 				<header class="post-head">
 					<h1>{title}</h1>
@@ -55,7 +80,22 @@ const breadcrumb = breadcrumbListSchema([
 								<>
 									<span class="dot">·</span>
 									<span class="updated">
-										updated <FormattedDate date={updatedDate} />
+										{updatedLabel} <FormattedDate date={updatedDate} />
+									</span>
+								</>
+							)
+						}
+						{
+							tags && tags.length > 0 && (
+								<>
+									<span class="dot">·</span>
+									<span class="tags">
+										{tags.map((tag, i) => (
+											<>
+												{i > 0 && <span class="tag-sep">·</span>}
+												<span class="tag">{tag}</span>
+											</>
+										))}
 									</span>
 								</>
 							)
@@ -76,7 +116,7 @@ const breadcrumb = breadcrumbListSchema([
 				</div>
 
 				<footer class="post-foot">
-					<a class="back" href="/blog">← back to all notes</a>
+					<a class="back" href={blogIndexPath}>{backLabel}</a>
 				</footer>
 			</article>
 		</main>
@@ -127,12 +167,23 @@ const breadcrumb = breadcrumbListSchema([
 		display: flex;
 		align-items: center;
 		gap: 0.5em;
+		flex-wrap: wrap;
 	}
-	.meta .dot {
+	.meta .dot,
+	.meta .tag-sep {
 		color: var(--text-subtle);
 	}
 	.meta .updated {
 		color: var(--text-subtle);
+	}
+	.tags {
+		display: inline-flex;
+		gap: 0.5em;
+		align-items: baseline;
+		color: var(--text-subtle);
+	}
+	.tag {
+		color: var(--text-muted);
 	}
 	.hero-image {
 		margin: 0 0 2.5em;
@@ -190,11 +241,19 @@ const breadcrumb = breadcrumbListSchema([
 		border-top: 1px solid var(--text-muted);
 		margin: 2.5em 0;
 	}
-	.prose :global(img) {
+	.prose :global(picture),
+	.prose :global(figure) {
 		display: block;
-		margin: 1.5em auto;
+		margin: 1.8em 0;
+	}
+	.prose :global(picture img),
+	.prose :global(figure img),
+	.prose :global(p > img) {
+		display: block;
+		max-width: 100%;
+		height: auto;
+		margin: 0 auto;
 		border-radius: 4px;
-		border: 1px solid var(--rule);
 	}
 	.prose :global(ul),
 	.prose :global(ol) {
@@ -202,6 +261,63 @@ const breadcrumb = breadcrumbListSchema([
 	}
 	.prose :global(li) {
 		margin-bottom: 0.4em;
+	}
+	.prose :global(table) {
+		width: 100%;
+		border-collapse: collapse;
+		font-family: var(--font-mono);
+		font-size: 0.85rem;
+		margin: 1.5em 0;
+		border-top: 1px solid var(--text-muted);
+		border-bottom: 1px solid var(--text-muted);
+	}
+	.prose :global(thead) {
+		border-bottom: 1px solid var(--rule);
+	}
+	.prose :global(th) {
+		text-align: left;
+		font-weight: 500;
+		padding: 0.6em 0.5em;
+		color: var(--text);
+		font-family: var(--font-mono);
+	}
+	.prose :global(td) {
+		padding: 0.5em 0.5em;
+		color: var(--text-muted);
+		border-top: 1px solid var(--rule);
+	}
+	.prose :global(td:first-child),
+	.prose :global(th:first-child) {
+		padding-left: 0;
+	}
+	.prose :global(td:last-child),
+	.prose :global(th:last-child) {
+		padding-right: 0;
+	}
+	.prose :global(td strong) {
+		color: var(--text);
+	}
+	.prose :global(pre) {
+		font-family: var(--font-mono);
+		font-size: 0.86rem;
+		line-height: 1.55;
+		padding: 1em 1.2em;
+		border-radius: 4px;
+		border: 1px solid var(--rule);
+		background-color: var(--bg-elevated);
+		overflow-x: auto;
+		margin: 1.4em 0;
+	}
+	.prose :global(pre code) {
+		all: unset;
+		font-family: inherit;
+	}
+	.prose :global(:not(pre) > code) {
+		font-family: var(--font-mono);
+		font-size: 0.86em;
+		padding: 0.1em 0.35em;
+		background-color: var(--accent-soft);
+		border-radius: 3px;
 	}
 
 	.post-foot {

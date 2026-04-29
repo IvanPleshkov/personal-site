@@ -1,21 +1,21 @@
 ---
 import { type CollectionEntry, getCollection, render } from 'astro:content';
-import BlogPost from '../../layouts/BlogPost.astro';
+import BlogPost from '../../../layouts/BlogPost.astro';
 
 export async function getStaticPaths() {
 	const all = await getCollection('blog');
-	const ruSlugs = new Set(
+	const enSlugs = new Set(
 		all
-			.filter((p) => p.id.endsWith('/ru'))
-			.map((p) => p.id.replace(/\/ru$/, '')),
+			.filter((p) => p.id.endsWith('/en'))
+			.map((p) => p.id.replace(/\/en$/, '')),
 	);
 	return all
-		.filter((p) => p.id.endsWith('/en'))
+		.filter((p) => p.id.endsWith('/ru'))
 		.map((p) => {
-			const slug = p.id.replace(/\/en$/, '');
+			const slug = p.id.replace(/\/ru$/, '');
 			return {
 				params: { slug },
-				props: { post: p, slug, hasTranslation: ruSlugs.has(slug) },
+				props: { post: p, slug, hasTranslation: enSlugs.has(slug) },
 			};
 		});
 }
@@ -30,6 +30,6 @@ const { post, slug, hasTranslation } = Astro.props;
 const { Content } = await render(post);
 ---
 
-<BlogPost {...post.data} slug={slug} lang="en" hasTranslation={hasTranslation}>
+<BlogPost {...post.data} slug={slug} lang="ru" hasTranslation={hasTranslation}>
 	<Content />
 </BlogPost>

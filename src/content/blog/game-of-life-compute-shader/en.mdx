@@ -1,0 +1,187 @@
+---
+title: "Game of Life on a compute shader"
+description: "A WGSL implementation of Conway's Game of Life that uses tiles, a halo region, and a staging buffer to keep the update in-place on a single storage buffer without cross-workgroup races. ~280 lines of WGSL, runs in the browser."
+pubDate: 2026-05-02
+tags: ["gpu", "wgsl", "compute-shader", "graphics"]
+---
+
+Conway's Game of Life is a four-line rule on a 2D grid: a live cell
+stays alive with 2 or 3 live neighbors, a dead cell with exactly 3
+neighbors becomes alive, everything else dies. Massive parallelism,
+trivial logic — the natural compute-shader exercise.
+
+The interesting part isn't the rules. It's that **workgroups don't
+synchronize with each other inside a single dispatch**, and the Life
+update needs each cell to read its 8 neighbors — including cells owned
+by other workgroups. Done naively, you race against yourself.
+
+This post walks through a WGSL implementation that handles the race
+properly using a tile + halo + staging-buffer pattern, running in-place
+on a single storage buffer.
+
+[Open the interactive demo →](https://compute.toys/view/2998)
+
+(compute.toys runs WGSL straight in the browser. Click; the shader
+compiles; the simulation starts.)
+
+## Why naive doesn't work
+
+On the CPU, Game of Life is a double loop:
+
+```
+for each cell (x, y):
+    n = neighbors_alive(x, y)  # read from input
+    output[x, y] = step(input[x, y], n)
+```
+
+Finish one pass, swap `input` and `output`, repeat. CPU threads (with
+proper synchronization) won't accidentally write something while you're
+reading it. The natural GPU translation is identical: ping-pong between
+two buffers. That works, costs you a second full grid in memory.
+
+This implementation does it differently — single storage buffer,
+in-place. A single dispatch has cells being *written* (their new value)
+and *read* (as someone else's neighbor) at the same time, in different
+workgroups, with no way to globally synchronize. That's a race, and the
+GPU is allowed to give you garbage.
+
+The fix: split the work into 16×16 tiles, give each workgroup a copy
+of its neighbors in shared memory, and write tile borders to a
+*separate* staging buffer that nobody is reading this pass.
+
+## Tiles and the halo
+
+Each workgroup owns a 16×16 patch of cells. To compute Life rules for
+those 256 cells, the workgroup needs each cell's 8 neighbors — which
+includes a 1-pixel ring around the patch, owned by neighboring
+workgroups.
+
+So the workgroup loads an **18×18** region into shared memory: its
+16×16 interior plus a 1-pixel halo from neighbors.
+
+```wgsl
+const TILE_SIZE = 16;
+const TILE_WITH_HALO = TILE_SIZE + 2; // 18
+var<workgroup> tile: array<u32, TILE_WITH_HALO * TILE_WITH_HALO>; // 324
+```
+
+Each thread loads its own cell. Threads on the tile's boundary
+additionally load the adjacent halo pixel; corner threads load the
+diagonal one. After a `workgroupBarrier()`, all 324 entries are
+populated, and every thread can read its 8 neighbors from `tile[]`
+without touching the global buffer.
+
+```wgsl
+fn apply_game_of_life_rules(local_position: vec3i) -> u32 {
+    let cell_value = tile[tile_local_index(local_position)];
+
+    var alive_neighbors = 0u;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) { continue; }
+            let neighbor = vec3i(local_position.x + dx, local_position.y + dy, 0);
+            alive_neighbors += tile[tile_local_index(neighbor)];
+        }
+    }
+
+    if (cell_value > 0) {
+        return select(0u, 1u, alive_neighbors == 2 || alive_neighbors == 3);
+    } else {
+        return select(0u, 1u, alive_neighbors == 3);
+    }
+}
+```
+
+So far, no surprises. The interesting bit is what happens when we
+write the result back.
+
+## The race, and the staging buffer
+
+Tile A computes new values for its 16×16 cells. So does Tile B, right
+next to A. Tile B's halo at its leftmost column corresponds to Tile
+A's *rightmost column* — A's border. If A writes its new border value
+to the storage buffer in this dispatch, and B reads from the storage
+buffer to populate its halo *in the same dispatch*, workgroup order
+isn't defined. B might see A's new value or A's old value at random.
+
+So: **don't write tile borders to the storage buffer in a dispatch
+where they're being read**. Borders go to a separate staging buffer.
+
+```wgsl
+#storage buffer array<u32>          // main grid
+#storage tile_edges array<u32>      // staging for border writes
+```
+
+Interior cells — the 14×14 *not* on the tile boundary — are not in any
+neighbor's halo, so they're safe to write directly:
+
+```wgsl
+let is_border = write_tile_edge(global_position, local_position, screen_size, new_value);
+if (!is_border) {
+    // Interior — nobody's halo touches us, write straight to the main buffer.
+    buffer[global_index(global_position, screen_size)] = new_value;
+}
+```
+
+A second dispatch copies staged border values into the main buffer:
+
+```wgsl
+@compute @workgroup_size(16, 16)
+fn updateBorders(...) {
+    let staged_value = read_tile_edge(global_position, local_position, screen_size);
+    if (staged_value < 100) {  // 1000 sentinel = "not a border"
+        buffer[global_index(global_position, screen_size)] = staged_value;
+    }
+}
+```
+
+Between the two dispatches the WebGPU runtime emits a memory barrier.
+After the second dispatch, the storage buffer is fully updated.
+
+`tile_edges` is laid out as `tile_id * 64 + edge * 16 + offset` —
+64 entries per tile (4 edges × 16 pixels). Corner pixels sit on two
+edges each, but the write helper picks the first matching edge in the
+`if/else` chain and the read helper uses the same order — corners end
+up in one consistent slot, never both.
+
+## The pipeline
+
+Four dispatches per frame:
+
+```
+initState      (once, frame 0)  — seed the grid from an input texture
+updateState                     — load tile + halo, apply rules,
+                                  write interior to buffer, borders to staging
+updateBorders                   — copy staging values to buffer
+main_image                      — render the buffer to screen
+```
+
+`#dispatch_once` (a compute.toys directive) makes `initState` run only
+on the first frame. The other three run every frame. To simulate
+faster than one step per frame, dispatch `updateState` and
+`updateBorders` multiple times per frame.
+
+## Where this pattern shows up
+
+The architectural shape — split work into tiles, load tile + halo into
+shared memory, do the stencil from shared, handle border writes
+carefully — recurs in every GPU stencil:
+
+- **Image filters**: gaussian blur, edge detection, morphology.
+- **Convolution layers** in inference frameworks.
+- **Fluid sims** (any explicit-Euler PDE step).
+- **Vector indexes**: [Qdrant's GPU HNSW
+  build](https://qdrant.tech/blog/qdrant-1.13.x/) uses the same
+  tile-load-and-stencil dance, just over an irregular graph instead of
+  a regular grid.
+
+The race-avoidance trick — single buffer + staging for borders — is
+specific. Not every stencil needs it; ping-pong with two buffers is
+simpler at the cost of double memory. Reach for the single-buffer +
+staging variant when memory matters more than dispatch count.
+
+## Source
+
+[Full WGSL on compute.toys →](https://compute.toys/view/2998) —
+~280 lines including helpers, comments, and the input-texture seeding.
+The compute.toys editor lets you fork and tweak.

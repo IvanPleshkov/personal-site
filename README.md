@@ -75,7 +75,23 @@ local rebuilds reuse the cache.
    ---
    ```
 3. Write Markdown / MDX. The post page, RSS entry, and a custom OG image at
-   `/og/blog/<slug>.png` are generated automatically.
+   `/og/blog/<lang>/<slug>.png` are generated automatically.
+
+### Drafts
+
+Add `draft: true` to a post's frontmatter to keep it private:
+
+```yaml
+draft: true
+```
+
+Drafts behave like this:
+
+- **Visible in `pnpm dev`** — preview locally as you write.
+- **Hidden in production builds** (what Cloudflare deploys) — no post page,
+  no entry in `/blog` or `/ru/blog`, no RSS item, no sitemap URL, no OG card.
+
+Remove the line (or set `draft: false`) when you're ready to publish.
 
 ## Design language
 

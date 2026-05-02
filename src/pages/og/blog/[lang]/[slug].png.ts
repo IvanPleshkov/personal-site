@@ -1,9 +1,9 @@
 import type { APIRoute, GetStaticPaths } from 'astro';
-import { getCollection } from 'astro:content';
+import { getBlogPosts } from '../../../../lib/blog';
 import { renderOG } from '../../../../lib/og';
 
 export const getStaticPaths: GetStaticPaths = async () => {
-	const posts = await getCollection('blog');
+	const posts = await getBlogPosts();
 	return posts
 		.map((post) => {
 			const match = post.id.match(/^(.+)\/(en|ru)$/);

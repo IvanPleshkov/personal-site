@@ -1,17 +1,17 @@
 ---
-import { getCollection } from 'astro:content';
 import BaseHead from '../../../components/BaseHead.astro';
 import Footer from '../../../components/Footer.astro';
 import FormattedDate from '../../../components/FormattedDate.astro';
 import Header from '../../../components/Header.astro';
 import { SITE_TITLE } from '../../../consts';
+import { getBlogPosts } from '../../../lib/blog';
 import {
 	breadcrumbListSchema,
 	collectionPageSchema,
 	SITE_URL,
 } from '../../../lib/schema';
 
-const all = await getCollection('blog');
+const all = await getBlogPosts();
 const posts = all
 	.filter((p) => p.id.endsWith('/ru'))
 	.map((p) => ({ post: p, slug: p.id.replace(/\/ru$/, '') }))

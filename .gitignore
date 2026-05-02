@@ -22,3 +22,6 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# experiment repo cloned alongside the polynomial-autoencoder post
+src/content/blog/polynomial-autoencoder/poly-autoencoder/

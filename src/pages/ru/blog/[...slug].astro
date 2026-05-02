@@ -1,9 +1,10 @@
 ---
-import { type CollectionEntry, getCollection, render } from 'astro:content';
+import { type CollectionEntry, render } from 'astro:content';
 import BlogPost from '../../../layouts/BlogPost.astro';
+import { getBlogPosts } from '../../../lib/blog';
 
 export async function getStaticPaths() {
-	const all = await getCollection('blog');
+	const all = await getBlogPosts();
 	const enSlugs = new Set(
 		all
 			.filter((p) => p.id.endsWith('/en'))

@@ -1,0 +1,429 @@
+---
+interface Props {
+	lang?: 'en' | 'ru';
+}
+const { lang = 'en' } = Astro.props;
+
+const labels = {
+	en: {
+		isotropic: 'isotropic',
+		anisotropic: 'anisotropic — example',
+		caption:
+			'Left: isotropic data. Right: one example of what anisotropic data can look like.',
+		hint: 'drag to rotate',
+		fallback: 'Interactive 3D viewer requires JavaScript.',
+	},
+	ru: {
+		isotropic: 'изотропное',
+		anisotropic: 'анизотропное — пример',
+		caption:
+			'Слева: изотропные данные. Справа: один пример того, как могут выглядеть анизотропные данные.',
+		hint: 'тяни мышью чтобы повернуть',
+		fallback: 'Интерактивный 3D-просмотрщик требует JavaScript.',
+	},
+} as const;
+
+const t = labels[lang];
+---
+
+<figure class="cone-viz" data-cone-viz>
+	<div class="labels" aria-hidden="true">
+		<span class="label">{t.isotropic}</span>
+		<span class="label">{t.anisotropic}</span>
+	</div>
+	<div class="viewer">
+		<canvas class="canvas"></canvas>
+		<noscript>
+			<div class="fallback">{t.fallback}</div>
+		</noscript>
+	</div>
+	<figcaption class="caption">{t.caption}</figcaption>
+	<p class="hint">{t.hint}</p>
+</figure>
+
+<script>
+	type ThreeNS = typeof import('three');
+	type OrbitControlsCtor = typeof import('three/addons/controls/OrbitControls.js')['OrbitControls'];
+
+	function readColor(varName: string): string {
+		const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+		return raw || '#888';
+	}
+
+	function gauss(): number {
+		const u = Math.random() || 1e-6;
+		const v = Math.random();
+		return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+	}
+
+	function isotropicCloud(n: number, scale: number): Float32Array {
+		const out = new Float32Array(n * 3);
+		for (let i = 0; i < n; i++) {
+			// Marsaglia: uniform on sphere
+			const u = Math.random() * 2 - 1;
+			const phi = Math.random() * 2 * Math.PI;
+			const r = Math.sqrt(1 - u * u);
+			out[i * 3] = scale * r * Math.cos(phi);
+			out[i * 3 + 1] = scale * u;
+			out[i * 3 + 2] = scale * r * Math.sin(phi);
+		}
+		return out;
+	}
+
+	function slerp(a: number[], b: number[], t: number): number[] {
+		const dot = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+		const omega = Math.acos(dot);
+		if (omega < 1e-6) {
+			return [a[0] * (1 - t) + b[0] * t, a[1] * (1 - t) + b[1] * t, a[2] * (1 - t) + b[2] * t];
+		}
+		const so = Math.sin(omega);
+		const k1 = Math.sin((1 - t) * omega) / so;
+		const k2 = Math.sin(t * omega) / so;
+		return [a[0] * k1 + b[0] * k2, a[1] * k1 + b[1] * k2, a[2] * k1 + b[2] * k2];
+	}
+
+	function anisotropicCloud(n: number, scale: number): Float32Array {
+		// Cosmic-web style: clusters spread across the whole sphere via a Fibonacci lattice
+		// with jitter, then connected to their nearest neighbours by thin filaments.
+		const K = 14;
+		const centers: number[][] = [];
+		const golden = (1 + Math.sqrt(5)) / 2;
+		for (let k = 0; k < K; k++) {
+			const i = k + 0.5 + (Math.random() - 0.5) * 0.6;
+			const z = 1 - 2 * (i / K);
+			const r = Math.sqrt(Math.max(0, 1 - z * z));
+			const phi = 2 * Math.PI * (i / golden) + (Math.random() - 0.5) * 0.3;
+			centers.push([r * Math.cos(phi), r * Math.sin(phi), z]);
+		}
+
+		// For each cluster, link it to its 2 nearest neighbours; dedupe so each pair appears once.
+		const linkSet = new Set<string>();
+		const links: [number, number][] = [];
+		for (let i = 0; i < K; i++) {
+			const sorted = centers
+				.map((c, j) => ({
+					j,
+					d: Math.hypot(c[0] - centers[i][0], c[1] - centers[i][1], c[2] - centers[i][2]),
+				}))
+				.filter((x) => x.j !== i)
+				.sort((a, b) => a.d - b.d);
+			for (let nn = 0; nn < 2; nn++) {
+				const j = sorted[nn].j;
+				const key = i < j ? `${i}-${j}` : `${j}-${i}`;
+				if (!linkSet.has(key)) {
+					linkSet.add(key);
+					links.push(i < j ? [i, j] : [j, i]);
+				}
+			}
+		}
+
+		const clusterShare = 0.62;
+		const filamentShare = 0.32;
+		// remaining ~6% — sparsely scattered "field" points across the full sphere
+		const clusterPts = Math.floor(n * clusterShare);
+		const filamentPts = Math.floor(n * filamentShare);
+		const fieldPts = n - clusterPts - filamentPts;
+
+		const out = new Float32Array(n * 3);
+		const project = (p: number[], i: number) => {
+			const len = Math.hypot(p[0], p[1], p[2]) || 1;
+			out[i * 3] = (scale * p[0]) / len;
+			out[i * 3 + 1] = (scale * p[1]) / len;
+			out[i * 3 + 2] = (scale * p[2]) / len;
+		};
+
+		let idx = 0;
+
+		// Cluster cores: tight gaussian around each centre, re-projected to the sphere.
+		for (let i = 0; i < clusterPts; i++) {
+			const c = centers[Math.floor(Math.random() * K)];
+			const sigma = 0.05;
+			project([c[0] + gauss() * sigma, c[1] + gauss() * sigma, c[2] + gauss() * sigma], idx++);
+		}
+
+		// Filaments: pick a link, sample along the great-circle slerp between the two centres,
+		// add a thin perpendicular Gaussian.
+		for (let i = 0; i < filamentPts; i++) {
+			const [a, b] = links[Math.floor(Math.random() * links.length)];
+			const c1 = centers[a];
+			const c2 = centers[b];
+			const t = Math.random();
+			const lp = slerp(c1, c2, t);
+			const sigma = 0.022;
+			project([lp[0] + gauss() * sigma, lp[1] + gauss() * sigma, lp[2] + gauss() * sigma], idx++);
+		}
+
+		// Field points: sparse uniform sphere coverage so voids don't look totally empty.
+		for (let i = 0; i < fieldPts; i++) {
+			const u = Math.random() * 2 - 1;
+			const phi = Math.random() * 2 * Math.PI;
+			const r = Math.sqrt(1 - u * u);
+			project([r * Math.cos(phi), u, r * Math.sin(phi)], idx++);
+		}
+
+		return out;
+	}
+
+	function makeWireSphere(THREE: ThreeNS, scale: number, color: string): import('three').LineSegments {
+		const g = new THREE.SphereGeometry(scale, 24, 16);
+		const wire = new THREE.WireframeGeometry(g);
+		g.dispose();
+		const m = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.32 });
+		return new THREE.LineSegments(wire, m);
+	}
+
+	function makeSolidSphere(THREE: ThreeNS, scale: number, color: string): import('three').Mesh {
+		// Opaque sphere — gives the cloud a tangible orb to sit on, and z-tests so that
+		// points on the far hemisphere are correctly hidden behind it.
+		const g = new THREE.SphereGeometry(scale * 0.99, 64, 40);
+		const m = new THREE.MeshLambertMaterial({ color, side: THREE.FrontSide });
+		return new THREE.Mesh(g, m);
+	}
+
+	async function initCloud(container: HTMLElement) {
+		const canvas = container.querySelector<HTMLCanvasElement>('.canvas');
+		if (!canvas) return;
+
+		const [THREE, { OrbitControls }] = await Promise.all([
+			import('three'),
+			import('three/addons/controls/OrbitControls.js'),
+		]);
+
+		const SCALE = 0.85;
+		const N = 1400;
+		const SEPARATION = 1.25;
+
+		const scene = new THREE.Scene();
+		const camera = new THREE.PerspectiveCamera(35, 2, 0.1, 100);
+		camera.position.set(0, 0.6, 5.5);
+
+		const renderer = new THREE.WebGLRenderer({
+			canvas,
+			antialias: true,
+			alpha: true,
+			powerPreference: 'low-power',
+		});
+		renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+		renderer.setClearColor(0x000000, 0);
+
+		// Lambert spheres need lights — one ambient for fill + one directional for soft shading.
+		// Lower ambient + a slightly stronger key gives the orb a visible terminator instead of
+		// reading flat.
+		scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+		const directional = new THREE.DirectionalLight(0xffffff, 0.65);
+		directional.position.set(3, 4, 5);
+		scene.add(directional);
+
+		// State that we re-read on theme change
+		let pointsLeft: import('three').Points | null = null;
+		let pointsRight: import('three').Points | null = null;
+		let wireLeft: import('three').LineSegments | null = null;
+		let wireRight: import('three').LineSegments | null = null;
+		let solidLeft: import('three').Mesh | null = null;
+		let solidRight: import('three').Mesh | null = null;
+
+		const buildClouds = () => {
+			// Tear down previous
+			[pointsLeft, pointsRight, wireLeft, wireRight, solidLeft, solidRight].forEach((o) => {
+				if (o) {
+					scene.remove(o);
+					(o.geometry as import('three').BufferGeometry).dispose();
+					((o.material as unknown) as { dispose: () => void }).dispose();
+				}
+			});
+
+			// Same metaphor in both themes: dark sphere = the deepest thing on screen,
+			// points = the brightest. Light mode reads as "dark planet on linen paper",
+			// dark mode as "dark planet floating in the void". Per-theme vars because the
+			// "darkest" and "brightest" semantic roles are filled by different CSS vars in
+			// each palette (no single var maps the same way).
+			const isDark = document.documentElement.dataset.theme === 'dark';
+			const sphereColor = isDark ? readColor('--rule') : readColor('--text-muted');
+			const wireColor = isDark ? readColor('--text-muted') : readColor('--text-subtle');
+			const pointColor = isDark ? readColor('--text') : readColor('--bg-elevated');
+
+			// Left: isotropic
+			const leftGeom = new THREE.BufferGeometry();
+			leftGeom.setAttribute('position', new THREE.BufferAttribute(isotropicCloud(N, SCALE), 3));
+			const pointsMaterialOpts = {
+				color: pointColor,
+				size: 0.032,
+				sizeAttenuation: true,
+				transparent: false,
+				opacity: 1,
+			} as const;
+			const leftMat = new THREE.PointsMaterial(pointsMaterialOpts);
+			pointsLeft = new THREE.Points(leftGeom, leftMat);
+			pointsLeft.position.x = -SEPARATION;
+			scene.add(pointsLeft);
+
+			solidLeft = makeSolidSphere(THREE, SCALE, sphereColor);
+			solidLeft.position.x = -SEPARATION;
+			scene.add(solidLeft);
+
+			wireLeft = makeWireSphere(THREE, SCALE, wireColor);
+			wireLeft.position.x = -SEPARATION;
+			scene.add(wireLeft);
+
+			// Right: anisotropic — same uniform colour as left; structure comes from density.
+			const rightGeom = new THREE.BufferGeometry();
+			rightGeom.setAttribute('position', new THREE.BufferAttribute(anisotropicCloud(N, SCALE), 3));
+			const rightMat = new THREE.PointsMaterial(pointsMaterialOpts);
+			pointsRight = new THREE.Points(rightGeom, rightMat);
+			pointsRight.position.x = SEPARATION;
+			scene.add(pointsRight);
+
+			solidRight = makeSolidSphere(THREE, SCALE, sphereColor);
+			solidRight.position.x = SEPARATION;
+			scene.add(solidRight);
+
+			wireRight = makeWireSphere(THREE, SCALE, wireColor);
+			wireRight.position.x = SEPARATION;
+			scene.add(wireRight);
+		};
+
+		buildClouds();
+
+		const controls = new OrbitControls(camera, canvas);
+		controls.enableDamping = true;
+		controls.dampingFactor = 0.08;
+		controls.enablePan = false;
+		controls.enableZoom = false;
+		controls.minPolarAngle = Math.PI * 0.15;
+		controls.maxPolarAngle = Math.PI * 0.85;
+
+		// No auto-rotate: by the time the reader scrolls down to this block, the labels
+		// (isotropic / anisotropic) would no longer line up with the rendered orbs.
+
+		// Theme reactivity: rebuild materials when data-theme flips.
+		const themeObserver = new MutationObserver(() => buildClouds());
+		themeObserver.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['data-theme'],
+		});
+
+		const resize = () => {
+			const rect = canvas.getBoundingClientRect();
+			const w = Math.max(rect.width, 1);
+			const h = Math.max(rect.height, 1);
+			renderer.setSize(w, h, false);
+			camera.aspect = w / h;
+			camera.updateProjectionMatrix();
+		};
+		resize();
+		const ro = new ResizeObserver(resize);
+		ro.observe(canvas);
+
+		// Pause render loop when offscreen so we don't burn battery.
+		let visible = true;
+		const visObserver = new IntersectionObserver(
+			([entry]) => {
+				visible = entry.isIntersecting;
+			},
+			{ rootMargin: '50px' },
+		);
+		visObserver.observe(container);
+
+		let raf = 0;
+		const loop = () => {
+			raf = requestAnimationFrame(loop);
+			if (!visible) return;
+			controls.update();
+			renderer.render(scene, camera);
+		};
+		raf = requestAnimationFrame(loop);
+
+		// Best-effort teardown — Astro static pages don't unmount, but it makes navigation friendlier.
+		window.addEventListener('beforeunload', () => {
+			cancelAnimationFrame(raf);
+			ro.disconnect();
+			visObserver.disconnect();
+			themeObserver.disconnect();
+			renderer.dispose();
+		});
+	}
+
+	const containers = document.querySelectorAll<HTMLElement>('[data-cone-viz]');
+	if (containers.length) {
+		const lazy = new IntersectionObserver(
+			(entries, obs) => {
+				for (const entry of entries) {
+					if (entry.isIntersecting) {
+						obs.unobserve(entry.target);
+						initCloud(entry.target as HTMLElement);
+					}
+				}
+			},
+			{ rootMargin: '300px' },
+		);
+		containers.forEach((c) => lazy.observe(c));
+	}
+</script>
+
+<style>
+	.cone-viz {
+		margin: 2em 0;
+	}
+	.labels {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1em;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		text-transform: lowercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+		text-align: center;
+		margin-bottom: 0.6em;
+	}
+	.label {
+		padding-bottom: 0.4em;
+		border-bottom: 1px solid var(--rule);
+	}
+	.viewer {
+		position: relative;
+		aspect-ratio: 2 / 1;
+		border: 1px solid var(--rule);
+		border-radius: 4px;
+		overflow: hidden;
+		background: var(--bg-elevated);
+	}
+	.canvas {
+		display: block;
+		width: 100%;
+		height: 100%;
+		touch-action: none; /* let OrbitControls handle pinch/drag without page scroll */
+	}
+	.fallback {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--text-muted);
+		padding: 1em;
+		text-align: center;
+	}
+	.caption {
+		margin: 0.8em 0 0.3em;
+		font-size: 0.92rem;
+		color: var(--text-muted);
+		max-width: 42em;
+	}
+	.hint {
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--text-subtle);
+		letter-spacing: 0.03em;
+	}
+	@media (max-width: 540px) {
+		.viewer {
+			aspect-ratio: 1.4 / 1;
+		}
+		.labels {
+			font-size: 10px;
+		}
+	}
+</style>

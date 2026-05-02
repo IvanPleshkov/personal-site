@@ -1,0 +1,40 @@
+---
+interface Props {
+	lightSrc: string;
+	darkSrc: string;
+	alt: string;
+}
+
+const { lightSrc, darkSrc, alt } = Astro.props;
+---
+
+<span class="themed-figure">
+	<img class="figure-light" src={lightSrc} alt={alt} loading="lazy" decoding="async" />
+	<img class="figure-dark" src={darkSrc} alt="" aria-hidden="true" loading="lazy" decoding="async" />
+</span>
+
+<style>
+	.themed-figure {
+		display: block;
+		margin: 1.8em 0;
+	}
+	.figure-light,
+	.figure-dark {
+		display: block;
+		width: 100%;
+		max-width: 100%;
+		height: auto;
+		margin: 0 auto;
+	}
+	/* Default: show light variant. Theme switch is driven by the `data-theme`
+	   attribute on <html> (set by our manual toggle), NOT by prefers-color-scheme. */
+	.figure-dark {
+		display: none;
+	}
+	:global(html[data-theme='dark']) .figure-light {
+		display: none;
+	}
+	:global(html[data-theme='dark']) .figure-dark {
+		display: block;
+	}
+</style>

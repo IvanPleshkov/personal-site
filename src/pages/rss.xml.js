@@ -1,9 +1,9 @@
-import { getCollection } from 'astro:content';
 import rss from '@astrojs/rss';
 import { SITE_DESCRIPTION, SITE_TITLE } from '../consts';
+import { getBlogPosts } from '../lib/blog';
 
 export async function GET(context) {
-	const all = await getCollection('blog');
+	const all = await getBlogPosts();
 	const posts = all
 		.filter((post) => post.id.endsWith('/en'))
 		.map((post) => ({ post, slug: post.id.replace(/\/en$/, '') }))

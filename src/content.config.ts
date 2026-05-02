@@ -14,6 +14,9 @@ const blog = defineCollection({
 			updatedDate: z.coerce.date().optional(),
 			heroImage: z.optional(image()),
 			tags: z.array(z.string()).optional(),
+			// Drafts are visible in `pnpm dev`, hidden in production builds: no index entry,
+			// no post page, no RSS, no sitemap, no OG card. Toggle off (or remove) to publish.
+			draft: z.boolean().optional().default(false),
 		}),
 });
 

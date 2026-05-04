@@ -1,0 +1,474 @@
+---
+title: "TurboQuant in Qdrant: tricks and ideas behind the implementation"
+description: "How we implemented the MSE variant of TurboQuant in Qdrant: renormalization, pure reversible rotation, anisotropy compensation, and support for L2 / unnormalized dot."
+pubDate: 2026-04-29
+tags: ["qdrant", "quantization", "turboquant", "vector-search", "ann"]
+draft: true
+---
+
+import ConeViz3D from '../../../components/blog/ConeViz3D.astro';
+
+## 1. Introduction
+
+**[TurboQuant](https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/) is a scalar vector-quantization algorithm published by Google Research in 2026.** On paper it compresses float32 vectors by 8× with virtually no loss in nearest-neighbor search quality and requires no per-dataset codebook training. That's a serious claim, and I spent several months landing it inside Qdrant — with all the extensions without which "the algorithm from the paper" doesn't survive contact with production. The result shipped in **Qdrant 1.18**.
+
+I layered several extensions on top of the original TurboQuant. Some I came up with myself while working on this, others showed up in other implementations (most notably in [llama-turbo-quant](https://github.com/llama-research/llama-turbo-quant) and in [Arkar Min Aung's interactive explainer](https://arkaung.github.io/interactive-turboquant/)) and dropped cleanly onto Qdrant's setup. I'm not pretending I invented all of this — but I'll try to explain **why** each of these extensions fits Qdrant as a production-grade vector database.
+
+A small note on code. All snippets in this post are in **Python**, for clarity and readability, so the idea can land without any Rust knowledge. The actual implementation in Qdrant is high-performance Rust with serious SIMD optimizations targeting AVX2 / AVX-512 / NEON; my colleague [Jojii](https://github.com/JojiiOfficial) covers those in detail and with great taste in his own post (TODO: link). This post is about ideas and algorithmic decisions; Jojii's post is about how to make those ideas run on the hardware at maximum speed.
+
+<a id="recall"></a>
+
+## 2. Recall numbers
+
+To honestly measure what our extensions add over the original algorithm, we wrote a Python implementation of our TurboQuant variant (a readable reference, in a separate repo: [turboquant-qdrant-showcase](https://github.com/IvanPleshkov/turboquant-qdrant-showcase)) and ran it side-by-side with **vanilla TurboQuant** from the open-source pip package [`turboquant` 0.2.0](https://pypi.org/project/turboquant/) — the first public implementation of the Google algorithm. An algorithm-vs-algorithm comparison: three configurations on the same brute-force benchmark.
+
+Configurations:
+
+* **vanilla-MSE** — `turboquant.TurboQuantMSE`, paper Algorithm 1 (the MSE variant).
+* **vanilla-IP** — `turboquant.TurboQuantIP`, paper Algorithm 2 (the PROD variant with QJL bit).
+* **qdrant** — our implementation with all the extensions [discussed in the implementation section](#trick-renorm) further down in the post.
+
+Data: 6 public datasets, picked specifically to cover both regimes — embeddings with pronounced anisotropy (instruction-tuned / contrastive-trained, no Matryoshka regularization), and embeddings that are close to isotropic (Matryoshka-trained or post-hoc decorrelated). 100K corpus and 1000 queries per dataset, with the corpus sampled uniformly via a deterministic shuffle. On datasets that are bigger than 100K (`gte-multilingual-ads` is 1M; `wiki-cohere` is multilingual at ~5M total — we use the `en` config), we take the first 100K after the shuffle, which matches a typical production segment size in Qdrant. Cells are recall@10 against brute-force cosine ground truth. **Dataset names in all tables below are clickable and link to the dataset page on HuggingFace.** The table is reproducible via `python benchmark.py` from the [turboquant-qdrant-showcase](https://github.com/IvanPleshkov/turboquant-qdrant-showcase) repo.
+
+The benchmark scale (100K) is not arbitrary: Qdrant slices data into segments, and our calibration [by construction](#trick-anisotropy) runs per-segment, independently. A typical production segment is on the same ~100K scale as our benchmark. So we're testing at the exact scale where calibration actually runs in production.
+
+#### 4 bits per coordinate
+
+| Dataset | vanilla-MSE | vanilla-IP | **qdrant** |
+|---|---|---|---|
+| [arxiv-instr](https://huggingface.co/datasets/Qdrant/arxiv-titles-instructorxl-embeddings) | 0.815 | 0.774 | **0.954** |
+| [gte-mul-ads](https://huggingface.co/datasets/Qdrant/gte-multilingual-ads-1M) | 0.791 | 0.740 | **0.967** |
+| [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.841 | 0.799 | **0.952** |
+| [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.941 | 0.920 | **0.970** |
+| [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.938 | 0.916 | **0.969** |
+| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | 0.920 | **0.973** |
+
+#### 2 bits per coordinate
+
+| Dataset | vanilla-MSE | vanilla-IP | **qdrant** |
+|---|---|---|---|
+| [arxiv-instr](https://huggingface.co/datasets/Qdrant/arxiv-titles-instructorxl-embeddings) | 0.696 | 0.627 | **0.840** |
+| [gte-mul-ads](https://huggingface.co/datasets/Qdrant/gte-multilingual-ads-1M) | 0.684 | 0.732 | **0.885** |
+| [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.730 | 0.633 | **0.840** |
+| [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.878 | 0.808 | **0.901** |
+| [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.877 | 0.806 | **0.901** |
+| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.883 | 0.827 | **0.914** |
+
+#### 1 bit per coordinate
+
+| Dataset | vanilla-MSE | **qdrant** |
+|---|---|---|
+| [arxiv-instr](https://huggingface.co/datasets/Qdrant/arxiv-titles-instructorxl-embeddings) | 0.609 | **0.686** |
+| [gte-mul-ads](https://huggingface.co/datasets/Qdrant/gte-multilingual-ads-1M) | 0.720 | **0.786** |
+| [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.615 | **0.702** |
+| [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.800 | **0.806** |
+| [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.798 | **0.807** |
+| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.819 | **0.840** |
+
+(vanilla-IP at 1 bit degenerates: PROD spends 1 bit on QJL, leaving zero bits for the codebook. To compare fairly, IP needs at least a 2-bit budget — that's why it's not in this table.)
+
+Below in the post we break down, trick by trick, where exactly the percentage points in the `qdrant` column come from. Before diving in there — a short background on the TurboQuant algorithm itself and why we specifically picked the MSE variant. A comparison of our TurboQuant implementation against Qdrant's other quantization methods (SQ, BQ, and the f32 recall baseline) lives separately and is used in marketing posts.
+
+---
+
+## 3. What TurboQuant is and why we picked the MSE variant
+
+TurboQuant's goal is to compress a D-dimensional float vector down to 1–4 bits per coordinate with minimal loss in nearest-neighbor accuracy, with no per-dataset codebook training ([arXiv:2504.19874](https://arxiv.org/abs/2504.19874)).
+
+I won't give a detailed retelling of the paper here — there's a much better explanation than I could write: [the interactive visual walkthrough](https://arkaung.github.io/interactive-turboquant/). If you don't already know the algorithm, spend 20 minutes there — you'll get it instantly.
+
+But in two words, the MSE version of the algorithm looks like this. Important point to call out from the start: **the algorithm is originally formulated for the unit sphere** — that is, for the cosine metric, with all vectors normalized to unit length. The whole math rests on this assumption: with points uniformly distributed on the sphere and a random rotation applied, each coordinate behaves like ~N(0, 1/D) — the same distribution for every vector in the dataset, which is what lets us apply **a single Lloyd-Max codebook** to every coordinate of every vector, no exceptions.
+
+The steps themselves:
+
+1. **Rotation.** Apply a pseudo-random orthogonal transform to the vector. This "smears" points on the sphere uniformly across coordinates, and each coordinate starts behaving like a Gaussian with variance 1/D.
+2. **Scalar Lloyd-Max quantization.** Quantize each coordinate independently into 1, 2, or 4 bits using a precomputed **Lloyd-Max codebook** — that's the classical algorithm from quantization theory (Lloyd, 1957; Max, 1960) which, for a given probability density, iteratively finds the `2^b` centroids and the boundaries between them that minimize mean-squared reconstruction error. For the standard Gaussian source it gives well-known tables: for 1 bit it's the pair ±0.798, for 4 bits — 16 centroids ranging from −2.733 to 2.733. If you want to play with the algorithm yourself, the [interactive walkthrough](https://arkaung.github.io/interactive-turboquant/) has a dedicated section with a widget that visualizes Lloyd-Max convergence step by step; here all that matters is that these centroids are the only universal table we keep in code, and there's no per-dataset codebook anywhere.
+
+What gets stored is **just `b·D` bits of centroid indices and nothing else** — no per-vector scale, no zero-point, no saved length. Scoring between a quantized vector and a continuous query (passed through the same rotation) is plain dot-product between the query and the centroids.
+
+This elegance only holds within the cosine metric. In Qdrant though, users come in with **L2** and **unnormalized dot-product** as well, and supporting them is a fundamental part of the product. How we carefully extend the algorithm beyond the unit sphere (and where that extension has an honest cost) is a separate story we'll work through below in [the metrics section](#metrics).
+
+### Asymmetric and symmetric scoring in Qdrant
+
+Before we get to picking a variant, there's one thing to call out that everything else rests on: **in Qdrant, the query vector is not quantized via TurboQuant.**
+
+When a user runs a search, the original float32 query already lives in memory for the duration of one query — it came in through the API, and keeping it as-is is free in disk terms and almost free in RAM. So scoring on the user-search path goes through an **asymmetric scheme**: we apply the same rotation to the query as to the stored vectors, then it's a plain dot-product between the continuous query and the centroids of the stored quantized vector. This dramatically improves recall compared to the symmetric scheme (quantized-vs-quantized), because the quantization noise lives only in the stored vector — it doesn't get doubled.
+
+But Qdrant has other scenarios where **both sides** of scoring must be quantized. For HNSW build, segment merges, internal clustering, and rescoring inside the index we can't drag around the original float32 vectors — that would defeat the whole point of quantization. For these cases we have a separate scoring branch that operates on two quantized representations.
+
+So we have **two equally important scoring paths** — asymmetric (for user search) and symmetric (for internal operations) — and they have to share a single artifact on disk. This fact governs almost everything that follows: the choice of TurboQuant variant, and almost all our tricks lean heavily on the fact that the query stays continuous on the search path.
+
+### Why MSE, not PROD
+
+The original paper has two variants of the algorithm: **TurboQuant-MSE** (the one above) and **TurboQuant-prod**. The latter is the same MSE construction, but one bit goes not into the Lloyd-Max codebook but into a sign bit of a random [QJL](https://arxiv.org/abs/2406.03482) projection. Why? Lloyd-Max centroids by construction sit closer to zero than the original coordinates, so every dot-product computed on the reconstructed vector systematically *shrinks* (by 2/π for 1 bit, ≈0.88 for 2 bits, ≈0.97 for 3 bits). The QJL bit corrects this bias via a random sketch, adding unbiasedness at the cost of higher variance.
+
+For Qdrant we deliberately picked the **MSE variant**. There are three reasons, in order of importance.
+
+**First, Qdrant has two equally important scoring paths and they have to share a single codebook.** The *asymmetric* path (full query against a stored quantized vector) is what users see during search. The *symmetric* path (quantized against quantized) is what runs at HNSW build, segment merges, rescoring, and internal clustering. TurboQuant-prod is asymmetric by construction: the QJL math derivation requires the full query, and without it the sign bit carries no signal. So on the symmetric path the PROD variant simply doesn't work — you'd have to maintain two independent artifacts. MSE gives a single set of codes that drops cleanly into both schemes: ⟨c[idx_x], c[idx_y]⟩ for symmetric, ⟨q, c[idx_x]⟩ for asymmetric. One artifact, two paths, zero special cases.
+
+**Second, scoring cost.** QJL requires applying a random (or Hadamard-approximated) projection to *every query* before combining it with the stored bits. That's an extra O(D log D) pass on top of the rotation we already do. The MSE path is "look up centroid by index, accumulate the dot-product" — literally a few operations per scoring comparison. For an online database scoring millions of candidates per second per shard, this difference is fundamental.
+
+**Third, bit budget.** Both variants asymptotically hit the Shannon bound D ≈ 4^(−b), but TurboQuant-prod *splits* its bits — b−1 go into the codebook, 1 into QJL — so at the same total budget the underlying MSE codebook in PROD is always one bit poorer than pure MSE. Spending the entire budget on codebook precision is more efficient: at b=2 the codebook already gives ≈0.88 fidelity, at b=4 ≈0.998, and that's the working range for ANN.
+
+**Honest about the trade-off.** The MSE estimator of the inner product carries a known deterministic shrinkage at low bit widths. At b=1 it loses ≈36% of every dot-product, at b=2 ≈12%. The PROD variant is unbiased by construction and has stronger theoretical guarantees on adversarial inputs and in tasks where absolute score values matter (not just ranking). For Qdrant this is fine because (a) we operate at b ≥ 2, where shrinkage is a uniform scalar that doesn't affect ranking, and (b) in a real pipeline we always rescore the top-K against the original vectors anyway, which absorbs any residual bias before it reaches the user.
+
+## 4. Implementation specifics in Qdrant
+
+From here we'll walk through the concrete tricks and decisions in our implementation, ordered from simplest to most substantial:
+
+- [Trick 1. Renormalization — bias correction without QJL](#trick-renorm)
+- [Trick 2. Pure, reversible, non-persistent rotation](#trick-rotation)
+- [Trick 3. Anisotropy compensation](#trick-anisotropy)
+- [Trick 4. P-Square quantiles instead of mean+std](#trick-psquare)
+- [Support for L2 and unnormalized dot-product](#metrics)
+
+Where the percentage points in the [main recall table](#recall) come from is broken down below, one trick per section.
+
+---
+
+<a id="trick-renorm"></a>
+
+## 5. Trick 1. Renormalization — bias correction without QJL
+
+The simplest of our tricks, and the one that overdelivers the most on impact. Up front: **I didn't invent this**. I personally first saw it in [llama-turbo-quant](https://github.com/llama-research/llama-turbo-quant), and it shows up in other TurboQuant implementations too. We borrowed it from the community and applied it in Qdrant — but not crediting it would be dishonest, because it's the trick that closes most of the gap between vanilla and our implementation.
+
+What it does. When we decode a stored vector, we get not the original X but its approximation through the nearest centroids. Because Lloyd-Max centroids sit closer to zero than the original, the decoded vector has a **systematically smaller L2 length** — it's biased in amplitude. This is exactly the shrinkage that the PROD variant fixes via QJL.
+
+We do it more simply, without QJL. At quantization time we additionally store the measured **L2 length of the centroid vector** `cn = ‖c[idx]‖`. This length is a constant overhead of 4 bytes per vector that pays for itself many times over.
+
+At scoring time we use the stored ratio `l2 / cn` as a scaling factor that replaces the naive `1/√D`. That is, when we want to recover the true dot-product from the "normalized" raw_dot, we don't divide by the deterministic `√D` (which would be correct in a no-noise world), we divide by the actually measured length of the centroid vector. This kills **per-vector** shrinkage exactly, without any random projections.
+
+### How much it gives
+
+Side-by-side, in pure form: vanilla-MSE vs our implementation **with renormalization only, no other extensions**. Numbers are recall@10 at 4 bits:
+
+| Dataset | vanilla-MSE | + renormalization | Δ, pp |
+|---|---|---|---|
+| [arxiv-instr](https://huggingface.co/datasets/Qdrant/arxiv-titles-instructorxl-embeddings) | 0.815 | **0.937** | **+12.2** |
+| [gte-mul-ads](https://huggingface.co/datasets/Qdrant/gte-multilingual-ads-1M) | 0.791 | **0.944** | **+15.3** |
+| [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.841 | **0.937** | **+9.6** |
+| [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.941 | **0.969** | **+2.8** |
+| [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.938 | **0.967** | **+2.9** |
+| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | **0.972** | **+3.5** |
+
+> **Important note:** in this table `+ renormalization` means our implementation **with only the renormalization trick**, none of the other tricks from this post. The pure isolated effect of the trick from llama-turbo-quant. Our full implementation (with all the tricks) does even better — its numbers are in the [main recall table](#recall) above.
+
+Notice the gap pattern: on anisotropic datasets, renormalization alone delivers +9–15pp; on isotropic ones, +3pp. This correlation with anisotropy isn't a coincidence (on anisotropic datasets the variation in `cn` between vectors is larger, and per-vector correction has more to work with), but the details are a separate topic.
+
+At 1-bit quantization renormalization gives almost nothing: with two centroids ±c, the centroid-vector norm `cn = c·√D` is the same for every vector regardless of indices — per-vector correction collapses to a constant scale that doesn't change the ranking. So all the renormalization win sits at 2 and 4 bits.
+
+---
+
+<a id="trick-rotation"></a>
+
+## 6. Trick 2. Pure, reversible, non-persistent rotation
+
+I think this is our most interesting engineering construction in the whole post — so I'll lead with the punch lines. Our rotation is:
+
+1. **A pure function.** No global state — the rotation is deterministic given its arguments and constant hardcoded seeds.
+2. **Non-persistent.** We don't save the rotation matrix to disk or in metadata. The rotation is fully described by the dimension plus constants in the code.
+3. **Fully reversible.** There's an inverse rotation that recovers the original exactly (up to numerical error), and it's pure too.
+
+### Hadamard as an approximation of a random rotation
+
+Like many other quantization-algorithm implementations, we use the Hadamard transform. It's a known trick: the Walsh-Hadamard Transform (WHT) approximates a random orthogonal rotation in O(D log D) instead of O(D²). Nothing unique about this part.
+
+But WHT only works on dimensions that are a power of two. Real embeddings — 384, 768, 1024, 1536, 3072 — sometimes line up, sometimes don't.
+
+### Decomposition into power-of-two blocks
+
+Padding up to the nearest power of two is wasteful (for D=1025 you'd pad up to 2048). So we **decompose the dimension as a sum of powers of two** greedily: for D=300 it's [256, 32, 8, 4]. Each block goes through its own WHT with normalization `1/√(block_size)`.
+
+### Why one round isn't enough
+
+WHT on independent blocks gives only partial decorrelation — if the energy was originally concentrated in one block, that's where it stays. To properly mix coordinates between blocks you need a **permutation** that shuffles positions, followed by another WHT. And so on for several rounds.
+
+In our implementation it's **3 rounds of (permute + WHT)** after the initial WHT — 4 WHT applications and 3 permutations total. Empirically that's enough to achieve clean redistribution on every dataset we tested — on highly non-uniform input the per-coordinate stddev after rotation drops by ~500× compared to the original.
+
+### Problems with plain random permutation
+
+If you do random permutation the obvious way, you have to store an index array of size D somewhere. That's:
+
+- O(D) memory per permutation (and we have 3 of them).
+- The array needs to be persisted in metadata — otherwise after a restart we can't decode vectors.
+- To get the inverse you either build and store another array, or walk forward each time, which is expensive.
+
+All this breaks our three properties (pure, non-persistent, reversible). We'd like to do this without any of that.
+
+### Our way: reversible LCG + Fisher-Yates
+
+The solution: **a deterministic Fisher-Yates shuffle, driven by a reversible LCG**. Let's unpack this in layers.
+
+**Fisher-Yates** is the classical algorithm for uniformly shuffling an array in place. We walk from the end backwards: at step `i` (from `n − 1` down to `1`) we draw a "random" number `j ∈ [0, i]` and swap `arr[i]` with `arr[j]`. The result is that every one of the `n!` possible permutations gets equal probability. The algorithm is linear in time, `O(1)` in extra memory, and consumes exactly one random number per step.
+
+How do we make Fisher-Yates **reversible**? An obvious observation: swap is its own inverse. So if we know the same sequence of `j`s and apply the swaps in reverse order, we unwind the permutation back to the original.
+
+The most direct path is to **store those numbers** somewhere. But that's `O(n)` memory per permutation — the same O(D) indices we wanted to avoid in the first place. Dead end.
+
+A better idea: have a **random-number source that can replay its own sequence in reverse**. Then nothing has to be stored — the reverse traversal just asks the source for the same `j`s that were emitted on the forward pass, in reverse order.
+
+The most naive "reversible" source is a **deterministic function of the index**: `j_i = hash(seed, i) mod (i + 1)`. Reversibility is trivial — at step `i` you recompute `hash(seed, i)` and get the same number. It works correctly, but Qdrant is built for maximum performance, and a crypto-grade hash per step is tens of nanoseconds of work; on segments of hundreds of thousands of vectors the raw cost of rotation starts to show.
+
+So we use a more elegant and faster construction — **a reversible LCG**.
+
+**LCG (Linear Congruential Generator)** is the simplest pseudo-random generator, known since the dawn of computing. The state is a single integer, the forward step is `state = (A · state + C) mod 2^64` for constants `A` and `C` (we use the well-known Knuth MMIX pair). One step is one multiplication plus one addition — basically free. In terms of distributional quality, an LCG is of course inferior to modern cryptographic-grade RNGs, but for the task of "give me a pseudo-random index for Fisher-Yates" it's more than enough — we're shuffling coordinates, not doing cryptography.
+
+The key trick we exploit: the step equation can be **algebraically inverted**. If `state' = (A · state + C) mod 2^64`, then `state = A_inv · (state' − C) mod 2^64`, where `A_inv` is the modular inverse of `A` modulo `2^64`. We computed that inverse once and stored it as a constant in the code. As a result the **backward step of the LCG is exactly as cheap as the forward step** — the same one multiplication plus one subtraction. In Python it looks like this:
+
+```python
+A      = 6364136223846793005    # Knuth MMIX multiplier
+C      = 1442695040888963407
+A_INV  = 13877824140714322085   # A * A_INV ≡ 1  (mod 2^64)
+MASK64 = (1 << 64) - 1
+
+def lcg_step(state):
+    return (A * state + C) & MASK64
+
+def lcg_step_back(state):
+    return (A_INV * (state - C)) & MASK64
+
+# Backward step is the exact inverse of forward:
+assert lcg_step_back(lcg_step(42)) == 42
+```
+
+Fisher-Yates then runs on top of this LCG: walk forward to produce the permutation, walk backward to undo it. At each step we use the **upper 32 bits** of state (more on that below):
+
+```python
+def shuffle(arr, seed):
+    """Fisher-Yates on an LCG. Returns end_state, which is enough
+    to reproduce the inverse on its own."""
+    state = seed
+    for i in range(len(arr) - 1, 0, -1):
+        state = lcg_step(state)
+        j = (state >> 32) % (i + 1)
+        arr[i], arr[j] = arr[j], arr[i]
+    return state
+
+def unshuffle(arr, end_state):
+    """Step the LCG backwards, undoing swaps in reverse order."""
+    state = end_state
+    for i in range(1, len(arr)):
+        j = (state >> 32) % (i + 1)
+        arr[i], arr[j] = arr[j], arr[i]
+        state = lcg_step_back(state)
+```
+
+So the entire permutation is fully described by a triple `(seed, count, end_state)` — three 64-bit integers, independent of dimension. The seeds themselves are hardcoded for us — three of them (one per round) — and they can't be changed because they're baked into the encoding of every quantized vector.
+
+A small detail where we caught a bug: when taking the modulo of an LCG output, you have to use **the upper 32 bits**, not the lower ones. The lower bits of an LCG have short periods and produce degenerate permutations — for count=4 our original code only covered 12 of the 24 possible permutations instead of all of them. That's why the code above does `(state >> 32) % (i + 1)` and not `state % (i + 1)`.
+
+In total: O(1) state for any dimension, reversibility for free, no persistence at all.
+
+---
+
+<a id="trick-anisotropy"></a>
+
+## 7. Trick 3. Anisotropy compensation
+
+This is the most substantive part of our implementation, and the right way into it is through the problem.
+
+### The problem: the algorithm works for isotropic data
+
+TurboQuant is theoretically elegant **strictly on isotropic data** — vectors uniformly distributed on the unit sphere. This was Google's original assumption in the paper: with sphere-uniformity and a random rotation, every coordinate behaves like ~N(0, 1/D), and **a single** Lloyd-Max codebook turns out to be optimal for every coordinate of every vector in the dataset.
+
+The word "isotropic" sounds scary but in one sentence it means "no preferred direction — points are distributed evenly around the center in every direction". A picture is easier:
+
+<ConeViz3D lang="en" />
+
+With real transformer embeddings the problem is that they're **anisotropic**: they have a few directions with high variance ("spike directions") and many directions where almost nothing happens. Rotation smears this anisotropy across coordinates but doesn't remove it — after rotation each coordinate has *its own* empirical variance, not the universal 1/D.
+
+The Lloyd-Max codebook is designed strictly for N(0, 1/D). If real coordinates have a different distribution, we waste bits: some centroids end up in regions with almost no points, and in dense regions the resolution isn't enough. Here's a real example — the distribution of one coordinate after rotation on the dbpedia-100K dataset, clearly not matching the Lloyd-Max layout:
+
+<img src="/blog/turboquant/images/coord_122_after_rotation.svg" alt="Distribution of coordinate 122 after Hadamard rotation on dbpedia-100K — a histogram with heavy tails, not matching N(0, 1/D)" />
+
+TurboQuant proves that on sphere-uniform data the rotated coordinates are distributed as N(0, 1/D). But that proof **does not apply** to arbitrary embeddings — there we get something similar but not the same. And at the codebook's quantile boundaries (where the difference between "fell into the right bin" and "missed" determines recall) that "not the same" really starts to hurt.
+
+### The solution: segmentation + per-coord shift+scale
+
+In Qdrant we have an architectural advantage. Unlike the original TurboQuant, which is *by design* dynamic and assumes no dataset analysis, **our data is sliced into segments** — manageable chunks of ~100K vectors that we can analyze individually. Here's what we do: after rotation and length normalization, we make a **first pass** over the segment, estimate per-coord **shift and scale**, and apply a per-coordinate transform that pulls the real distribution onto the region where the Lloyd-Max codebook actually quantizes precisely:
+
+```
+X⁺ᵢ = (Xᵢ + shiftᵢ) · scaleᵢ
+```
+
+After this fit each coordinate's distribution sits on the Lloyd-Max codebook cleanly, and the centroids are used uniformly. The same coordinate 122 from dbpedia-100K we saw above, after shift+scale, looks like this:
+
+<img src="/blog/turboquant/images/coord_122_after_shift_scale.svg" alt="The same coordinate 122 from dbpedia-100K after applying shift+scale — the histogram now sits cleanly on the Lloyd-Max codebook layout" />
+
+Which statistics exactly we estimate (and why not "just mean+stddev") is a separate question, addressed in [Trick 4 on P-Square](#trick-psquare). For understanding the anisotropy-compensation idea here it's enough that we have a `(shift, scale)` pair per coordinate and apply them as written above.
+
+### Why it's free at scoring time
+
+This is where the asymmetry of scoring (which we discussed earlier) kicks in. The stored vector is quantized, but the query isn't. So the compensation can be entirely shifted onto the query side:
+
+Let `M = -shift`, `D' = 1/scale` (diagonal matrix). The stored vector after shift+scale: `X⁺ = (X − M) ⊘ D'`. Then
+
+```
+⟨Q, X⟩ = ⟨Q, X⁺ ⊙ D' + M⟩
+       = ⟨Q ⊙ D', X⁺⟩ + ⟨Q, M⟩
+```
+
+We pre-multiply the rotated query coordinate-wise by `D'`, and add a scalar correction `qm = ⟨Q, M⟩` to the final score. The scoring formula **doesn't change at all** — we still compute one uniform-weight dot sum, the query just arrives already pre-scaled. The `qm` correction itself is a single float added to `raw_dot` before the metric-specific scaling formulas.
+
+So: because the query was high-precision anyway, we offloaded the entire mathematical burden of anisotropy compensation onto it. The stored vector gets **more effective precision** at the same bit width (centroids are used uniformly), and the query takes on the extra per-coordinate variance — it can *afford* it because it's float32.
+
+### How much it gives
+
+Side-by-side: our implementation **without anisotropy compensation** (i.e. only renormalization from Trick 1 + our rotation from Trick 2) vs the **full implementation** (with shift+scale). The pure isolated effect of anisotropy compensation:
+
+#### On anisotropic datasets
+
+| Dataset | 1b off | 1b on | Δ | 2b off | 2b on | Δ | 4b off | 4b on | Δ |
+|---|---|---|---|---|---|---|---|---|---|
+| [arxiv-instr](https://huggingface.co/datasets/Qdrant/arxiv-titles-instructorxl-embeddings) | 0.602 | **0.686** | **+8.4** | 0.792 | **0.840** | **+4.8** | 0.937 | **0.954** | **+1.7** |
+| [gte-mul-ads](https://huggingface.co/datasets/Qdrant/gte-multilingual-ads-1M) | 0.722 | **0.786** | **+6.4** | 0.840 | **0.885** | **+4.5** | 0.944 | **0.967** | **+2.3** |
+| [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.614 | **0.702** | **+8.8** | 0.795 | **0.840** | **+4.5** | 0.937 | **0.952** | **+1.5** |
+
+#### On close-to-isotropic datasets
+
+| Dataset | 1b off | 1b on | Δ | 2b off | 2b on | Δ | 4b off | 4b on | Δ |
+|---|---|---|---|---|---|---|---|---|---|
+| [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.801 | **0.806** | +0.5 | 0.897 | **0.901** | +0.4 | 0.969 | **0.970** | +0.1 |
+| [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.797 | **0.807** | +1.0 | 0.896 | **0.901** | +0.5 | 0.967 | **0.969** | +0.2 |
+| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.820 | **0.840** | +2.0 | 0.907 | **0.914** | +0.7 | 0.972 | **0.973** | +0.1 |
+
+(`off` / `on` = anisotropy compensation off / on. `Δ` is the recall gain in percentage points from turning compensation on.)
+
+The picture is clear: the method **substantially improves recall** on anisotropic embeddings (especially at low bit widths, where the margin is smallest) and **does almost nothing** on isotropic ones. This isn't a bug or a shortcoming — it's exactly the expected behavior, and importantly the method **never makes things worse**. Which is why in production it's enabled **by default**: if user data is anisotropic, it gives them a free and noticeable recall bump; if isotropic, it gracefully collapses to identity and adds no noise.
+
+### Why it doesn't make things worse
+
+A key property of our `(shift, scale)` estimation formula (details in [Trick 4 on P-Square](#trick-psquare)) — **for ideally N(0, 1/D) data it collapses to identity**. Specifically: `shift = 0`, `scale = 1`. We estimate not mean/stddev (which give a "differently-tuned" Lloyd-Max codebook on Gaussian data and slightly break things), but quantiles at the same probability levels where the codebook boundaries sit. If the data is truly Gaussian, empirical quantiles match theoretical ones, the formula returns `(0, 1)`, and the calibration **does nothing** — literally doesn't change a single bit in the encoded vector.
+
+So in the table above: on isotropic datasets Δ ≈ 0 isn't because the calibration "got lucky and broke nothing" — it's because by construction it **shouldn't** do anything on isotropic data. That's a mathematical guarantee, not empirical luck.
+
+### Symmetric scoring: we deliberately don't apply the compensation
+
+Everything above lands well for the asymmetric path: the query is continuous, and the compensation (the `D'` pre-multiplication and `qm` correction) drops into the existing scoring loop for free, without precision loss. But Qdrant has the second path — **symmetric scoring**, when both sides are quantized (HNSW build, segment merges, internal comparisons). The story here is very different, and it's important to spell out what we do differently and why.
+
+Formally, the same algebra as in the asymmetric case unfolds for two quantized vectors just fine:
+
+```
+⟨X_a, X_b⟩ = Σ X⁺_a_i · X⁺_b_i · D'_i² + xm_a + xm_b − ⟨M, M⟩
+```
+
+Here `X⁺` is the encoded vector (after shift+scale), `D'_i² = 1/scale_i²` is the per-coord weight, and `xm = ⟨X, M⟩` is a scalar correction that can be saved alongside the quantized vector at encoding time. You'd think we could just apply this formula and get an "honest" ⟨X_a, X_b⟩ for all internal paths.
+
+**In practice this breaks recall.** Here's why.
+
+In the asymmetric path the per-coord weight `D'` lives **on the side of the continuous query**. Quantization noise sits only in `X⁺` (one side), and when you sum products of the form `Q_i · D'_i · c_i` the noise errors average out across coordinates — a large `D'_i` in one coordinate is balanced by neighbors. Noise is averaged, and amplification is harmless.
+
+In the symmetric path both sides are quantized, and noise sits in both `c1` and `c2`. The key operation is `c1_i · c2_i · D'_i²`. Here a product of **two** noises gets multiplied by `D'²`, and `D'_i² = 1/stddev_i²` has a huge dynamic range: on coordinates with small original variance `D'²` can be tens or hundreds of times larger than on coordinates with large variance. Effectively we get a weighted sum where a few "noisy" coordinates with large weight dominate the rest of the signal — and the resulting score becomes practically random with respect to true similarity.
+
+So on the symmetric path with anisotropy compensation we **don't apply** either the per-coord weighting `D'²` or the scalar corrections `xm + xm − ⟨M, M⟩`. We compute a plain uniform-weight dot between the two quantized representations — that is, **exactly the same scoring formula as without compensation**. No extra operations, no "if calibration is on, then …" branch at scoring.
+
+What are we actually computing then? Since the stored centroids approximate `X⁺` (the encoded vector after shift+scale), the uniform-weight dot gives us an approximation of `⟨X⁺_a, X⁺_b⟩` — similarity in EC-space, not in the original space. This is a **different** metric, but it's **fully self-consistent**: the HNSW graph, which is built via symmetric scoring, is optimized for proximity in this same EC-space, and candidates surfaced by graph traversal are close to the query in that same space. The final top-K seen by the user still gets re-scored via the asymmetric path — where the compensation is applied honestly.
+
+### The 1-bit metric: query needs to be widened to 12 bits
+
+At 1-bit storage with anisotropy compensation enabled there's a separate nuance — without it, recall sags noticeably at this bit width.
+
+First, the context. At 1-bit storage the codebook is just two points `±c`, where `c = sqrt(2/π) ≈ 0.798` (Lloyd-Max for N(0, 1)) — meaning the codebook index *is* the sign bit of the stored coordinate. The stored vector is a dense pack of signs (8 dims per byte), and **the query is quantized into signed integers of `BITS` bits** (default 8) and combined with the data bits to produce the final dot. The specific way this is computed efficiently on CPU is the topic of the separate post on SIMD optimizations; here all that matters is one thing: **the query bit width is a free parameter, which we can dial without changing the storage format at all.**
+
+The key point: at 1-bit storage **the data side has the minimum possible resolution** — a single sign bit. That means the precision of asymmetric scoring is bottlenecked by **the query side**. At 2 and 4 bits the data itself carries enough resolution, and the noise of an 8-bit query gets lost in the centroid-quantization noise. At 1 bit it's not so: each per-coordinate dot is effectively `q_i · sign(x_i)`, and any error in `q_i` goes **directly** into the final score, with no amortization by data noise.
+
+Now the anisotropy-compensation specifics. In ordinary mode (no shift+scale) after the Hadamard rotation the query coordinates are distributed fairly uniformly, and the int8 range `[-127, 127]` is enough with margin to spare. But with compensation enabled we pre-multiply the rotated query coordinate-wise by `D' = 1/scale`. The per-coord `scale_i` differ widely on real embeddings — that's exactly the anisotropy we're doing shift+scale for in the first place. After pre-multiplication, the distribution of query coordinates becomes **highly non-uniform**: coordinates corresponding to high data variance (`scale_i` large → `D'_i` small) shrink toward zero; coordinates with small variance, on the contrary, blow up.
+
+When we then normalize the query as `q_scale = 127 / max(|q|)`, the coordinates from the "small" group end up with integer values like 0, ±1, ±2 — and that's not signal anymore, that's rounding noise. Scoring on these coordinates effectively idles: their contribution to the final dot is near zero, even though in the original continuous query they carried some meaningful (if small) information.
+
+The fix is to widen the query quantization from 8 to **12 bits** for the case "compensation + 1-bit storage". Then `q_scale = 2047 / max(|q|)`, and even the squashed coordinates get ~16 levels of resolution. Measurements show: at 8 query bits relative error reaches ~2%, at 12 bits — ~0.2%, **a 10× drop** in scoring error on the same input pair.
+
+The cost. The query side takes 50% more memory. But the query precomputation is done **once** per search query and reused for millions of candidates per shard — amortized to one scoring comparison this overhead vanishes to free. The data side doesn't change at all: storage is still 1 bit per dim. The scoring formula doesn't change in structure either — query bit width enters as a parameter.
+
+A typical pattern for us emerges: quality is fixed **only on the query side**, without changes to storage and without changes to the scoring formula — leveraging the fact that the query is continuous at scoring time anyway, and its bit width is a parameter we can freely turn.
+
+---
+
+<a id="trick-psquare"></a>
+
+## 8. Trick 4. P-Square quantiles instead of mean+std
+
+In the previous trick we used per-coord shift+scale without specifying how exactly to estimate them. We could have gone the simple route: walk the segment and compute per-coord mean and stddev, assuming that after rotation the data is normally distributed — even if with arbitrary mean and variance. On most real datasets that's close to true, but it's not perfect: even after a Hadamard rotation Gaussianity is recovered *asymptotically*, and at finite dimension (especially at low bit widths, where codebook boundaries are very sensitive to tails) this approximation leaks.
+
+Worse, Qdrant is a production-grade database, and we can't rely on "usually normal". What if production sees a heavy-tailed dataset, a bimodal one, or something specifically adversarial? We have to deliver predictable quality without prior knowledge of the dataset.
+
+So instead of mean/stddev we use a dataset-agnostic approach — **the P-Square algorithm** ([Jain & Chlamtac, 1985](https://www.cse.wustl.edu/~jain/papers/psqr.htm)). It's an online quantile estimator with **constant memory** that makes no assumptions about the distribution. The estimator maintains a compact set of "markers" (we use 7 — a generalization of the original 5-marker P-Square that gives better tail accuracy), which move with each new point so that the middle marker converges to the target quantile. Under the hood it's parabolic interpolation of marker positions, with a linear fallback when parabolic would push out of the neighbor range. The estimator state is a few numbers, the update is formally O(1) per point.
+
+### How we use the result
+
+We don't have one estimator per segment — we have **one per coordinate**, so `dim` independent P-Square instances total, computing a symmetric per-coord interval `[q_lo, q_hi]`. The quantile levels are picked carefully: let `c_outer` be the outermost centroid of the Lloyd-Max codebook (≈0.798 for 1 bit, ≈2.733 for 4 bits). For ideally N(0, 1) data the probability mass inside the interval `[-c_outer, c_outer]` is `2·Φ(c_outer) − 1`, where Φ is the standard-normal CDF. So we ask P-Square for per-coord quantiles at exactly the levels `1 − Φ(c_outer)` and `Φ(c_outer)` — i.e. at the probability positions where the codebook edges sit in the reference model.
+
+From the empirical `q_lo`, `q_hi` we then assemble shift and scale:
+
+```
+shift = -(q_lo + q_hi) / 2           # recenter
+scale =  2 · c_outer / (q_hi - q_lo) # stretch to [-c_outer, c_outer]
+```
+
+The key property this calibration is chosen for: **for ideally N(0, 1) data**, `q_lo == -c_outer` and `q_hi == +c_outer`, so `shift == 0` and `scale == 1` — the calibration becomes the identity and does nothing extra, doesn't introduce noise on already well-distributed data. This is exactly the mathematically-guaranteed "doesn't make things worse" property we relied on in Trick 3. For anisotropic data the formula gently stretches the per-coord empirical "tail" interval onto the region the codebook can quantize precisely. No ties to a Gaussian model — we calibrate **at the point of the distribution where the codebook boundary actually is**, and that point can sit anywhere in the real data.
+
+### Streaming through a reservoir, instead of all-stream P-Square
+
+Originally we kept one P-Square per coordinate and pushed every value from the stream straight through it — using the algorithm exactly as advertised. The idea is simple, but on our workloads it turned out to be too expensive. Formally P-Square is `O(1)` per push, but behind that O(1) sits ~50 ns of parabolic interpolation, branch-heavy checks, and marker movement. On a segment with 100k+ vectors × 1k+ coordinates, the calibration work started dominating everything else in quantization — to the point where the pre-pass became the most expensive stage of the build.
+
+So we split the streaming and the estimation phases:
+
+1. **During streaming** — per-coord reservoir sampling (the classical Vitter's Algorithm R). A reservoir push is **~5 ns**: one RNG draw, one branch, one possible store. An order of magnitude cheaper than a P-Square push, and on our data that difference pays off many times over.
+2. **After the stream finishes** — we run actual P-Square over the contents of each reservoir, in parallel across coordinates. The reservoir size `R` is fixed — ~4–8 thousand depending on how deep the target tail quantile is (for bits=1 the anchor sits at `p≈0.79` and R≈4096 is plenty; for bits=4 the anchor sits at `p≈0.997` and we want R≈8192) — and on this bounded sample P-Square is no longer expensive.
+
+Correctness: a reservoir sample is by construction a **uniform i.i.d. sample** of the entire stream — every one of `N` values has equal probability `R/N` of ending up in the reservoir. P-Square is consistent on any uniform sample of the distribution, which is exactly what the reservoir hands us. The markers additionally smooth the noise of tail order statistics: just taking `sorted[k]` over `R≈8k` at quantile `p=0.997` gives a wobbly answer — P-Square with parabolic interpolation on the same sample is meaningfully more stable.
+
+Nice property: when `N < R`, the reservoir holds the full stream in input order, and the new scheme produces the **bit-identical** answer to the old "P-Square over the whole stream". On small segments nothing is lost and nothing changes.
+
+The stream itself is a producer/consumer pipeline. The producer thread pulls vectors into **recyclable chunk buffers** (capacity ~4k vectors, allocated once and reused), then runs each vector through the preprocess (Hadamard rotation + length rescale) in parallel via rayon, writing back into the same buffer. The consumer (main thread) takes the filled block and flushes it into the per-coord reservoirs, also via rayon — each thread gets a coordinate and pushes its column. Producer and consumer run concurrently: while the consumer flushes one block, the producer is already filling the next.
+
+### Memory is not free here
+
+The reservoir stores `R` f64 values per coordinate — `8 · R · D` bytes total **for the duration of the pre-pass**. For a typical dimension of D=1024 at R=8192 that's **~67 MB**, for D=3072 — **~200 MB**. Plus the pair of chunk buffers (~32 MB at D=1024). Once calibration is done all of this is freed — the persisted quantized artifact stays as compact as before (`b·D` bits of indices + extras).
+
+The budget is **independent** of dataset size — only `dim` and `R` drive it. If pre-pass memory becomes a bottleneck, you can shrink `R` at the cost of higher variance in the quantile estimates (and tail levels like `p≈0.997` start hurting first), or disable the compensation entirely for that collection.
+
+### Test distributions
+
+We test P-Square on a deliberately diverse set of distributions with very different tail behavior: uniform, N(0, 1), Poisson(λ=2) (asymmetric, non-normal), Student-T with 2 degrees of freedom (heavy tails, formally infinite variance). On all of them the relative quantile estimation error stays within 5–10%. That's the whole point of this trick: **the calibration's behavior stops depending on how Gaussian the dataset is** — and that's exactly the guarantee a production database needs when it doesn't know in advance what embeddings will arrive.
+
+---
+
+<a id="metrics"></a>
+
+## 9. Metrics: L2 and unnormalized dot-product
+
+Back to the limitation we established at the start of the post: **TurboQuant in its original form lives strictly on the unit sphere** — for the cosine metric and normalized embeddings. This is a limitation of the algorithm itself, and in exchange you get zero overhead on storage (just `b·D` bits of indices, nothing else). But Qdrant is a production database, and it's unacceptable for us to tell users "we only support cosine". L2 is the most popular metric after cosine, and unnormalized dot-product comes up too, especially in production embeddings with a learned scale.
+
+So we extend the algorithm beyond the sphere, carefully. The cost: **+4 bytes per vector** for the stored length (the L2 norm). On top of `b·D` bits of indices that's a microscopic overhead, but it's exactly what unlocks two new metrics.
+
+**Unnormalized dot-product.** We store the L2 length of the original vector `‖v‖` next to the quantized representation. Internally the storage works with a representation normalized to √D (this is our extension over the original — we turn any vector into "the equivalent of a point on the sphere" via a simple normalization), but at scoring time we multiply raw_dot back by `‖v‖` — which restores the absolute scale. We do the same for the query: store `‖q‖` in the precomputed structure. No constraints on input normalization.
+
+**L2 metric.** L2 distance unfolds via the classical identity:
+
+```
+‖q − v‖² = ‖q‖² + ‖v‖² − 2⟨q, v⟩
+```
+
+We can already compute `⟨q, v⟩` (per the previous bullet), and `‖q‖²` and `‖v‖²` are stored. Add them up and we get L2 with no additional precision loss relative to what the main scoring scheme gives us. So **L2 costs us exactly the same as dot-product** — because all the L2-specific work boils down to one scalar computation from already-available data.
+
+### What about L1?
+
+Unfortunately, for L1 there are **no tricks**, and it's not laziness on our part — **rotation does not preserve L1 norm**. Any orthogonal matrix preserves L2 (and cosine, since cosine is just normalized dot-product), but in general `‖Rx‖₁ ≠ ‖x‖₁`. That means all the math behind our fast scoring through a rotated quantized representation rests on the L2-invariance of rotation — and for L1 that foundation simply doesn't hold: the difference between two vectors after rotation can have an entirely different L1 norm than the original difference did.
+
+This doesn't prevent you from using MSE TurboQuant if L1 is your metric — but scoring then goes **through full dequantization**: pull out the centroids by index, restore the length, apply the inverse rotation, return to the original space, and only there compute honest L1. It's correct, but **a serious performance hit** that throws away most of the quantization speedup (an inverse rotation at O(D log D) per scoring comparison is a disaster). So L1 in TQ is an emergency fallback, **and we do not recommend it for production loads**: if you have L1, it's better to look at our other quantization methods, which are L1-compatible by design.
+
+---
+
+## 10. Conclusion
+
+TurboQuant is a beautiful algorithm, and the MSE variant in particular fits a vector database really well. But between "the algorithm from the paper" and "a production-grade implementation in Qdrant" there's a gap, and we tried to close it with several extensions:
+
+- **Renormalization** through a stored centroid-norm kills quantization shrinkage without QJL and without doubling the scoring cost. A simple trick from llama-turbo-quant that alone delivers +9–15pp recall on anisotropic datasets at 4 bits.
+- **Hadamard rotation** in our triple (permute + WHT) form with reversible-LCG permutations — fully pure, reversible, non-persistent — gives us quality close to a random orthogonal rotation at O(D log D) and zero metadata.
+- **Anisotropy compensation** via per-coord shift+scale offloaded onto the query side — free at compute, noticeable at recall on anisotropic embeddings. On datasets with no anisotropy it collapses to identity by construction and adds no noise.
+- **P-Square** calibration through empirical per-coord quantiles, anchored to the codebook boundaries — on ideally normal data it's the identity, on anything else it produces a correct shift+scale without distributional assumptions.
+- **Wide query** for 1-bit centroids in the anisotropy-compensation mode recovers recall that would otherwise be lost to rounding noise in the lower end of the 8-bit range.
+- **L2 and unnormalized dot** we pulled outside the unit sphere on which the algorithm formally lives, at a cost of `+4` bytes per vector for the stored length. L1 doesn't yield to extension (rotation doesn't preserve L1) — and that's an honest limitation; we don't recommend TQ for L1 in production.
+
+The implementation is open and lives in the Qdrant repository — the production Rust code in [`lib/quantization/src/turboquant/`](https://github.com/qdrant/qdrant), and a maximally-readable Python reference (same set of algorithmic tricks, no SIMD scaffolding) in a separate repo: [turboquant-qdrant-showcase](https://github.com/IvanPleshkov/turboquant-qdrant-showcase); you can reproduce the recall table from there with a single command. If anything is unclear or interesting — drop me a line, happy to discuss.

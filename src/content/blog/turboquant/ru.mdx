@@ -41,7 +41,7 @@ import ConeViz3D from '../../../components/blog/ConeViz3D.astro';
 | [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.841 | 0.799 | **0.952** |
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.941 | 0.920 | **0.970** |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.938 | 0.916 | **0.969** |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | 0.920 | **0.973** |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | 0.920 | **0.973** |
 
 #### 2 бита на координату
 
@@ -52,7 +52,7 @@ import ConeViz3D from '../../../components/blog/ConeViz3D.astro';
 | [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.730 | 0.633 | **0.840** |
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.878 | 0.808 | **0.901** |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.877 | 0.806 | **0.901** |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.883 | 0.827 | **0.914** |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.883 | 0.827 | **0.914** |
 
 #### 1 бит на координату
 
@@ -63,7 +63,7 @@ import ConeViz3D from '../../../components/blog/ConeViz3D.astro';
 | [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.615 | **0.702** |
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.800 | **0.806** |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.798 | **0.807** |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.819 | **0.840** |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.819 | **0.840** |
 
 (vanilla-IP при 1 бите вырождается: PROD отделяет 1 бит на QJL, и на codebook остаётся ноль битов. Чтобы сравнить честно, IP нужен минимум 2-битный бюджет — поэтому в этой таблице его нет.)
 
@@ -149,7 +149,7 @@ import ConeViz3D from '../../../components/blog/ConeViz3D.astro';
 | [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.841 | **0.937** | **+9.6** |
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.941 | **0.969** | **+2.8** |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.938 | **0.967** | **+2.9** |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | **0.972** | **+3.5** |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | **0.972** | **+3.5** |
 
 > **Важное уточнение:** в этой таблице `+ ренормализация` — это моя имплементация **только с ренормализацией**, без всех остальных трюков из этого поста. Чистый изолированный эффект приёма из llama-turbo-quant. Полная имплементация (со всеми трюками) даёт ещё больше — её цифры в [главной таблице recall](#recall) выше.
 
@@ -330,7 +330,7 @@ X⁺ᵢ = (Xᵢ + shiftᵢ) · scaleᵢ
 |---|---|---|---|---|---|---|---|---|---|
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.801 | **0.806** | +0.5 | 0.897 | **0.901** | +0.4 | 0.969 | **0.970** | +0.1 |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.797 | **0.807** | +1.0 | 0.896 | **0.901** | +0.5 | 0.967 | **0.969** | +0.2 |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.820 | **0.840** | +2.0 | 0.907 | **0.914** | +0.7 | 0.972 | **0.973** | +0.1 |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.820 | **0.840** | +2.0 | 0.907 | **0.914** | +0.7 | 0.972 | **0.973** | +0.1 |
 
 («без» / «с» = без / с компенсацией анизотропии. `Δ` — прирост recall в percentage points от включения компенсации.)
 

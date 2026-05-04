@@ -41,7 +41,7 @@ The benchmark scale (100K) is not arbitrary: Qdrant slices data into segments, a
 | [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.841 | 0.799 | **0.952** |
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.941 | 0.920 | **0.970** |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.938 | 0.916 | **0.969** |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | 0.920 | **0.973** |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | 0.920 | **0.973** |
 
 #### 2 bits per coordinate
 
@@ -52,7 +52,7 @@ The benchmark scale (100K) is not arbitrary: Qdrant slices data into segments, a
 | [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.730 | 0.633 | **0.840** |
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.878 | 0.808 | **0.901** |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.877 | 0.806 | **0.901** |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.883 | 0.827 | **0.914** |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.883 | 0.827 | **0.914** |
 
 #### 1 bit per coordinate
 
@@ -63,7 +63,7 @@ The benchmark scale (100K) is not arbitrary: Qdrant slices data into segments, a
 | [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.615 | **0.702** |
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.800 | **0.806** |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.798 | **0.807** |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.819 | **0.840** |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.819 | **0.840** |
 
 (vanilla-IP at 1 bit degenerates: PROD spends 1 bit on QJL, leaving zero bits for the codebook. To compare fairly, IP needs at least a 2-bit budget — that's why it's not in this table.)
 
@@ -149,7 +149,7 @@ Side-by-side, in pure form: vanilla-MSE vs our implementation **with renormaliza
 | [gemini-001](https://huggingface.co/datasets/nirantk/dbpedia-entities-google-palm-gemini-embedding-001-100K) | 0.841 | **0.937** | **+9.6** |
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.941 | **0.969** | **+2.8** |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.938 | **0.967** | **+2.9** |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | **0.972** | **+3.5** |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | **0.972** | **+3.5** |
 
 > **Important note:** in this table `+ renormalization` means our implementation **with only the renormalization trick**, none of the other tricks from this post. The pure isolated effect of the trick from llama-turbo-quant. Our full implementation (with all the tricks) does even better — its numbers are in the [main recall table](#recall) above.
 
@@ -330,7 +330,7 @@ Side-by-side: our implementation **without anisotropy compensation** (i.e. only 
 |---|---|---|---|---|---|---|---|---|---|
 | [openai-3-l](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-100K) | 0.801 | **0.806** | +0.5 | 0.897 | **0.901** | +0.4 | 0.969 | **0.970** | +0.1 |
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.797 | **0.807** | +1.0 | 0.896 | **0.901** | +0.5 | 0.967 | **0.969** | +0.2 |
-| [wiki-cohere](https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3) | 0.820 | **0.840** | +2.0 | 0.907 | **0.914** | +0.7 | 0.972 | **0.973** | +0.1 |
+| [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.820 | **0.840** | +2.0 | 0.907 | **0.914** | +0.7 | 0.972 | **0.973** | +0.1 |
 
 (`off` / `on` = anisotropy compensation off / on. `Δ` is the recall gain in percentage points from turning compensation on.)
 

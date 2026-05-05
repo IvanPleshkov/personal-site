@@ -12,7 +12,18 @@ export default defineConfig({
 	markdown: {
 		rehypePlugins: [rehypeSlug],
 	},
-	integrations: [mdx({ rehypePlugins: [rehypeSlug] }), sitemap()],
+	integrations: [
+		mdx({ rehypePlugins: [rehypeSlug] }),
+		sitemap({
+			i18n: {
+				defaultLocale: 'en',
+				locales: {
+					en: 'en',
+					ru: 'ru',
+				},
+			},
+		}),
+	],
 	i18n: {
 		defaultLocale: 'en',
 		locales: ['en', 'ru'],

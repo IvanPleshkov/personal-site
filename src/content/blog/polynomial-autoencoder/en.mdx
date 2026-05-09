@@ -1,6 +1,6 @@
 ---
 title: "Polynomial autoencoder"
-description: "A closed-form autoencoder: PCA encoder + quadratic Ridge decoder. On FiQA it gives 4× compression of mxbai-embed-large-v1 at -0.85 p.p. NDCG@10, +2.73 p.p. over PCA. No SGD, no neural networks."
+description: "A closed-form autoencoder: PCA encoder + quadratic Ridge decoder. On FiQA it gives 4× compression of mxbai-embed-large-v1 at -0.88 p.p. NDCG@10, +1.34 p.p. over PCA. No SGD, no neural networks."
 pubDate: 2026-05-05
 tags: ["embeddings", "pca", "autoencoder", "matryoshka", "retrieval"]
 draft: false
@@ -39,23 +39,26 @@ per-vector budget 512 bytes. Metric is **NDCG@10** (Normalized
 Discounted Cumulative Gain over the top-10, the standard retrieval
 ranking-quality measure; range [0, 1], higher is better):
 
-| method                    | NDCG@10 | Δ vs raw 1024d |
-|---------------------------|---------|----------------|
-| raw 1024d (4096 bytes)    | 0.4525  | —              |
-| PCA top-256               | 0.4168  | -3.58 p.p.     |
-| **poly-AE 256d**          | **0.4441** | **-0.85 p.p.** |
-| matryoshka top-256        | 0.4039  | -4.86 p.p.     |
+| method                       | NDCG@10 | Δ vs raw 1024d |
+|------------------------------|---------|----------------|
+| raw 1024d (4096 bytes)       | 0.4533  | —              |
+| PCA top-256                  | 0.4175  | -3.58 p.p.     |
+| PCA-whitened top-256         | 0.3892  | -6.41 p.p.     |
+| PCA-half-whitened top-256    | 0.4311  | -2.22 p.p.     |
+| **poly-AE 256d**             | **0.4445** | **-0.88 p.p.** |
+| matryoshka top-256           | 0.4040  | -4.93 p.p.     |
 
 PCA already gives 4× per-vector memory compression at -3.58 p.p. NDCG.
-A quadratic decoder on top of PCA pulls another **+2.73 p.p.** —
-closing almost the entire gap to raw, at the same byte budget.
+A quadratic decoder on top of PCA pulls another **+1.34 p.p. over the
+strongest PCA baseline** (half-whitened; +2.70 p.p. over vanilla PCA)
+— closing almost the entire gap to raw, at the same byte budget.
 Matryoshka is in the table as another familiar baseline (here it
 drops more than PCA — a known side observation, not the central claim
 of this post; see [§3](#3-the-headline-table--four-models) footnote and [§4](#4-where-the-quadratic-decoder-actually-helps)).
 
 Measured on four models (nomic-v1.5, mxbai-large, bge-base, e5-base).
-Poly-AE over PCA: +1 to +4.4 p.p. at d=128, +0.03 to +2.7 p.p. at
-d=256. Full table in [§3](#3-the-headline-table--four-models).
+Poly-AE over half-whitened PCA: -0.59 to +2.10 p.p. at d=128, +0.57
+to +2.65 p.p. at d=256. Full table in [§3](#3-the-headline-table--four-models).
 
 Full implementation — ~150 lines of numpy, MIT, repository
 [github.com/IvanPleshkov/poly-autoencoder](https://github.com/IvanPleshkov/poly-autoencoder).
@@ -91,7 +94,11 @@ Four lines in every measurement:
   slice a non-MRL model — the scenario users of the bge family, e5,
   and custom-fine-tuned embeddings actually fall into.
 - **PCA** — top-d eigenvectors of the corpus covariance. Vectors live
-  in d-dimensional PCA coordinates.
+  in d-dimensional PCA coordinates. The tables compare three ways of
+  weighting those axes for cosine retrieval: **vanilla** (cosine on the
+  raw PCA coordinates), **whitened** (on `p / sqrt(eigvals)` — every
+  axis weighted equally), and **half-whitened** (on `p / eigvals^(1/4)`
+  — a compromise between the two extremes).
 - **poly-AE** — our method. Encode with PCA into `p ∈ ℝ^d`, decode
   with a quadratic polynomial back to a full D-dimensional `V̂`,
   retrieve on `V̂`.
@@ -120,16 +127,16 @@ qrels.
 NDCG@10 on FiQA at budgets of 256 fp16 (512 bytes/vector) and 128 fp16
 (256 bytes):
 
-| Model                  | D    | d    | raw    | matryoshka† | PCA    | **poly-AE** | poly over matryoshka | poly vs raw  |
-|------------------------|------|------|--------|-------------|--------|-------------|----------------------|--------------|
-| nomic-embed-text-v1.5  | 768  | 128  | 0.3746 | 0.3190      | 0.3273 | **0.3380**  | +1.90 p.p.           | -3.65 p.p.   |
-| nomic-embed-text-v1.5  | 768  | 256  | 0.3746 | 0.3508      | 0.3670 | **0.3673**  | +1.65 p.p.           | -0.73 p.p.   |
-| mxbai-embed-large-v1   | 1024 | 128  | 0.4525 | 0.3503      | 0.3689 | **0.4129**  | +6.26 p.p.           | -3.97 p.p.   |
-| mxbai-embed-large-v1   | 1024 | 256  | 0.4525 | 0.4039      | 0.4168 | **0.4441**  | +4.02 p.p.           | -0.85 p.p.   |
-| bge-base-en-v1.5\*     | 768  | 128  | 0.4062 | 0.2914      | 0.3266 | **0.3654**  | +7.40 p.p.           | -4.09 p.p.   |
-| bge-base-en-v1.5\*     | 768  | 256  | 0.4062 | 0.3574      | 0.3688 | **0.3958**  | +3.84 p.p.           | -1.05 p.p.   |
-| e5-base-v2\*           | 768  | 128  | 0.3987 | 0.2498      | 0.3065 | **0.3317**  | +8.18 p.p.           | -6.70 p.p.   |
-| e5-base-v2\*           | 768  | 256  | 0.3987 | 0.3333      | 0.3618 | **0.3852**  | +5.19 p.p.           | -1.35 p.p.   |
+| Model                  | D    | d    | raw    | matryoshka† | PCA    | PCA-w  | PCA-h-w | poly-AE     |
+|------------------------|------|------|--------|-------------|--------|--------|---------|-------------|
+| nomic-embed-text-v1.5  | 768  | 128  | 0.3746 | 0.3190      | 0.3273 | 0.3227 | **0.3439** | 0.3380   |
+| nomic-embed-text-v1.5  | 768  | 256  | 0.3746 | 0.3508      | 0.3670 | 0.3298 | 0.3616  | **0.3673**  |
+| mxbai-embed-large-v1   | 1024 | 128  | 0.4533 | 0.3505      | 0.3691 | 0.3876 | 0.4002  | **0.4125**  |
+| mxbai-embed-large-v1   | 1024 | 256  | 0.4533 | 0.4040      | 0.4175 | 0.3892 | 0.4311  | **0.4445**  |
+| bge-base-en-v1.5\*     | 768  | 128  | 0.4062 | 0.2914      | 0.3268 | 0.3216 | 0.3443  | **0.3653**  |
+| bge-base-en-v1.5\*     | 768  | 256  | 0.4062 | 0.3574      | 0.3685 | 0.3357 | 0.3697  | **0.3962**  |
+| e5-base-v2\*           | 768  | 128  | 0.3987 | 0.2498      | 0.3062 | 0.3264 | **0.3358** | 0.3315   |
+| e5-base-v2\*           | 768  | 256  | 0.3987 | 0.3333      | 0.3608 | 0.3316 | 0.3660  | **0.3848**  |
 
 † The "matryoshka" column is `embedding[:d]` plus L2 normalization. On
 nomic and mxbai it's a valid matryoshka vector. On models marked with
@@ -141,10 +148,11 @@ it here honestly.
 
 What this shows:
 
-1. **Poly-AE is consistently ahead of PCA** across all four models.
-   Lift: +1 to +4.4 p.p. NDCG at d=128, +0.03 to +2.7 p.p. at d=256.
-   Where the quadratic decoder actually helps and at what `d` —
-   discussed in [§4](#4-where-the-quadratic-decoder-actually-helps).
+1. **Poly-AE is ahead of vanilla PCA on all eight cells** (+1.07 to
+   +4.34 p.p. at d=128, +0.03 to +2.77 p.p. at d=256). Against the
+   tougher baseline — half-whitened PCA — the gap shrinks: -0.59 to
+   +2.10 p.p. at d=128, +0.57 to +2.65 p.p. at d=256. Where the
+   quadratic decoder actually helps and at what `d` — discussed below.
 2. **At `d=256`, poly-AE loses 0.7–1.4 p.p. NDCG vs raw 768/1024** on
    all four models. 4× per-vector memory compression for less than 1.5
    p.p. lost — the main number of the post.
@@ -160,32 +168,38 @@ PCA is the linear baseline. The quadratic decoder adds the nonlinear
 piece that the linear one can't reach (mechanics in [§5](#5-why-a-linear-projection-loses-information)). How much does
 that actually help on retrieval, and at what `d`?
 
-Poly-AE lift over PCA, by model and `d`:
+Poly-AE lift by model and `d`. The left two columns compare against
+vanilla PCA, the right two against half-whitened PCA — the latter is
+the apples-to-apples baseline, since poly-AE itself whitens the latent
+`p` before the polynomial lift (see [§6](#6-a-polynomial-decoder-via-a-linear-lift)):
 
-| Model       | poly over PCA, d=128 | poly over PCA, d=256 |
-|-------------|----------------------|----------------------|
-| nomic-v1.5  | +1.07 p.p.           | +0.03 p.p.           |
-| mxbai-large | +4.40 p.p.           | +2.73 p.p.           |
-| bge-base    | +3.88 p.p.           | +2.70 p.p.           |
-| e5-base-v2  | +2.52 p.p.           | +2.34 p.p.           |
+| Model       | poly over PCA, d=128 | poly over PCA-h-w, d=128 | poly over PCA, d=256 | poly over PCA-h-w, d=256 |
+|-------------|----------------------|--------------------------|----------------------|--------------------------|
+| nomic-v1.5  | +1.07 p.p.           | **−0.59 p.p.**           | +0.03 p.p.           | +0.57 p.p.               |
+| mxbai-large | +4.34 p.p.           | +1.23 p.p.               | +2.70 p.p.           | +1.34 p.p.               |
+| bge-base    | +3.85 p.p.           | +2.10 p.p.               | +2.77 p.p.           | +2.65 p.p.               |
+| e5-base-v2  | +2.53 p.p.           | **−0.43 p.p.**           | +2.40 p.p.           | +1.88 p.p.               |
 
 The picture:
 
-1. **At d=128 (8× compression) poly is consistently 1–4 p.p. ahead of
-   PCA.** This is the regime where the linear decoder starts dropping
-   noticeable variance into the nonlinear tail, and the quadratic
-   correction pulls it back. Sweet spot for the method.
+1. **At d=128 (8× compression) poly is consistently +1–4 p.p. ahead of
+   vanilla PCA.** This is the regime where the linear decoder starts
+   dropping noticeable variance into the nonlinear tail, and the
+   quadratic correction pulls it back. Sweet spot against vanilla PCA.
+   Against half-whitened PCA the picture is mixed — on nomic/e5 poly
+   loses (-0.59/-0.43 p.p.), on mxbai/bge it wins (+1.23/+2.10 p.p.).
 
-2. **At d=256 (4× compression) the gap is uneven.** On mxbai/bge/e5 —
-   a stable +2.3–2.7 p.p. On nomic — close to zero (+0.03). Likely
-   reason: nomic was carefully trained with multi-slice contrastive
-   loss, its latent is more isotropic, and at d=256 the linear
-   projection already takes most of what's there. On non-MRL models the
-   nonlinear tail is bigger → poly helps more.
+2. **At d=256 (4× compression) the gap over vanilla PCA is uneven** —
+   on mxbai/bge/e5 a stable +2.4–2.8 p.p., on nomic close to zero
+   (+0.03). Likely reason: nomic was carefully trained with multi-slice
+   contrastive loss, its latent is more isotropic. Against half-whitened
+   PCA poly is consistently ahead (+0.57 to +2.65 p.p.) — at this `d`
+   the quadratic correction stays meaningful even after whitening.
 
-3. **More anisotropy → bigger lift.** The stronger the cone effect,
-   the more variance lives in the nonlinear tail that PCA can't reach
-   but poly can. That's the geometry [§5](#5-why-a-linear-projection-loses-information) unpacks.
+3. **More anisotropy → bigger lift.** The stronger the cone effect
+   (mxbai, bge), the more variance lives in the nonlinear tail that
+   even whitened PCA can't reach but poly can. That's the geometry
+   [§5](#5-why-a-linear-projection-loses-information) unpacks.
 
 ### Side: where matryoshka sits in the table
 
@@ -222,11 +236,13 @@ In the operator-fit setting (fixed corpus, the operator fits
 compression once), you have two working modes:
 
 - **d=256** gives 4× compression at -0.7 to -1.4 p.p. NDCG vs raw.
-  Poly over PCA: from +0.03 (nomic) to +2.7 p.p. (mxbai/bge/e5). On
-  an MRL-trained model like nomic the gap to PCA is minimal; on
-  non-MRL models poly is clearly ahead.
-- **d=128** gives 8× compression. Poly over PCA: +1 to +4.4 p.p. on
-  any model. Sweet spot for the method.
+  Poly over half-whitened PCA: from +0.57 (nomic) to +2.65 p.p. (bge).
+  Consistently ahead of the strongest PCA baseline on any model.
+- **d=128** gives 8× compression. Poly over vanilla PCA: +1 to +4 p.p.
+  on any model. Against half-whitened PCA the picture is split: on
+  mxbai/bge it wins (+1.23/+2.10 p.p.), on nomic/e5 it loses
+  (-0.59/-0.43 p.p.) — on well-MRL-trained models, half-whitened PCA
+  already picks up the same nonlinearity, more cheaply.
 
 ## 5. Why a linear projection loses information
 

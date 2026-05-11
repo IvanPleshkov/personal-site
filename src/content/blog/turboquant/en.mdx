@@ -1,6 +1,6 @@
 ---
-title: "TurboQuant in Qdrant: tricks and ideas behind the implementation"
-description: "How we implemented the MSE variant of TurboQuant in Qdrant: renormalization, pure reversible rotation, anisotropy compensation, and support for L2 / unnormalized dot."
+title: "TurboQuant + RaBitQ: a hybrid approach in Qdrant"
+description: "How I shipped a TurboQuant + RaBitQ hybrid in Qdrant 1.18 with additional tricks."
 pubDate: 2026-04-29
 tags: ["qdrant", "quantization", "turboquant", "vector-search", "ann"]
 draft: true
@@ -12,7 +12,9 @@ import ConeViz3D from '../../../components/blog/ConeViz3D.astro';
 
 **[TurboQuant](https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/) is a scalar vector-quantization algorithm published by Google Research in 2026.** On paper it compresses float32 vectors by 8× with virtually no loss in nearest-neighbor search quality and requires no per-dataset codebook training. That's a serious claim, and I spent several months landing it inside Qdrant — with all the extensions without which "the algorithm from the paper" doesn't survive contact with production. The result shipped in **Qdrant 1.18**.
 
-I layered several extensions on top of the original TurboQuant. Some I came up with myself while working on this, others showed up in other implementations (most notably in [llama-turbo-quant](https://github.com/llama-research/llama-turbo-quant) and in [Arkar Min Aung's interactive explainer](https://arkaung.github.io/interactive-turboquant/)) and dropped cleanly onto Qdrant's setup. I'm not pretending I invented all of this — but I'll try to explain **why** each of these extensions fits Qdrant as a production-grade vector database.
+Important context up front. TurboQuant is not the only algorithm in the "random rotation + per-coordinate scalar quantization" family. In parallel — and earlier, at SIGMOD 2024 — there's **[RaBitQ (Gao & Long)](https://arxiv.org/abs/2405.12497)**, built on the same foundation but with different implementation details and different answers to the key engineering problems, in particular shrinkage. My implementation in Qdrant is a **hybrid** of the two: I take the Lloyd-Max codebook and the integer SIMD scoring kernels (at 2 and 4 bits) from TurboQuant; length renormalization and the entire 1-bit scoring path from RaBitQ — at 1 bit the algorithm reduces to pure RaBitQ, with TurboQuant contributing only the rotation. On top of that hybrid I add one substantive product-level extension — **per-coordinate anisotropy compensation** — and a handful of engineering details that make the whole stack land in production (a pure reversible Hadamard rotation, P-Square calibration, a wide query for 1-bit, support for L2 and unnormalized dot). The body of the post calls out, section by section, where each piece comes from.
+
+Some tricks I picked up from open-source implementations in the community — most notably [llama-turbo-quant](https://github.com/llama-research/llama-turbo-quant) and [Arkar Min Aung's interactive explainer](https://arkaung.github.io/interactive-turboquant/) — and they dropped cleanly onto Qdrant's setup. I'm not pretending I invented all of this — but I'll try to explain **why** each of these extensions fits Qdrant as a production-grade vector database.
 
 A small note on code. All snippets in this post are in **Python**, for clarity and readability, so the idea can land without any Rust knowledge. The actual implementation in Qdrant is high-performance Rust with serious SIMD optimizations targeting AVX2 / AVX-512 / NEON; my colleague [Jojii](https://github.com/JojiiOfficial) covers those in detail and with great taste in his own post (TODO: link). This post is about ideas and algorithmic decisions; Jojii's post is about how to make those ideas run on the hardware at maximum speed.
 
@@ -130,7 +132,9 @@ Where the percentage points in the [main recall table](#recall) come from is bro
 
 ## 5. Trick 1. Renormalization — bias correction without QJL
 
-The simplest of our tricks, and the one that overdelivers the most on impact. Up front: **I didn't invent this**. I personally first saw it in [llama-turbo-quant](https://github.com/llama-research/llama-turbo-quant), and it shows up in other TurboQuant implementations too. We borrowed it from the community and applied it in Qdrant — but not crediting it would be dishonest, because it's the trick that closes most of the gap between vanilla and our implementation.
+The simplest of our tricks, and the one that overdelivers the most on impact. Up front: **I didn't invent this, and it isn't in the TurboQuant paper either**. It's an idea from [RaBitQ (Gao & Long, SIGMOD 2024)](https://arxiv.org/abs/2405.12497) — an algorithm from the same "rotation + quantization" family that pre-dates TurboQuant and solves the same shrinkage problem not via QJL sampling but via one extra scalar per vector. The open-source TurboQuant implementations (notably [llama-turbo-quant](https://github.com/llama-research/llama-turbo-quant)) borrowed the trick from RaBitQ; I in turn first saw it there. The most accurate way to think of it is **TurboQuant's codebook with RaBitQ's scale on top**.
+
+Not crediting it would be dishonest — it's the trick that closes most of the gap between vanilla TurboQuant and our implementation.
 
 What it does. When we decode a stored vector, we get not the original X but its approximation through the nearest centroids. Because Lloyd-Max centroids sit closer to zero than the original, the decoded vector has a **systematically smaller L2 length** — it's biased in amplitude. This is exactly the shrinkage that the PROD variant fixes via QJL.
 
@@ -151,7 +155,7 @@ Side-by-side, in pure form: vanilla-MSE vs our implementation **with renormaliza
 | [openai-3-s](https://huggingface.co/datasets/Qdrant/dbpedia-entities-openai3-text-embedding-3-small-1536-100K) | 0.938 | **0.967** | **+2.9** |
 | [wiki-cohere](https://huggingface.co/datasets/CohereLabs/wikipedia-2023-11-embed-multilingual-v3) | 0.937 | **0.972** | **+3.5** |
 
-> **Important note:** in this table `+ renormalization` means our implementation **with only the renormalization trick**, none of the other tricks from this post. The pure isolated effect of the trick from llama-turbo-quant. Our full implementation (with all the tricks) does even better — its numbers are in the [main recall table](#recall) above.
+> **Important note:** in this table `+ renormalization` means our implementation **with only the renormalization trick**, none of the other tricks from this post. The pure isolated effect of layering the RaBitQ trick on top of vanilla TurboQuant. Our full implementation (with all the tricks) does even better — its numbers are in the [main recall table](#recall) above.
 
 Notice the gap pattern: on anisotropic datasets, renormalization alone delivers +9–15pp; on isotropic ones, +3pp. This correlation with anisotropy isn't a coincidence (on anisotropic datasets the variation in `cn` between vectors is larger, and per-vector correction has more to work with), but the details are a separate topic.
 
@@ -368,7 +372,9 @@ What are we actually computing then? Since the stored centroids approximate `X�
 
 At 1-bit storage with anisotropy compensation enabled there's a separate nuance — without it, recall sags noticeably at this bit width.
 
-First, the context. At 1-bit storage the codebook is just two points `±c`, where `c = sqrt(2/π) ≈ 0.798` (Lloyd-Max for N(0, 1)) — meaning the codebook index *is* the sign bit of the stored coordinate. The stored vector is a dense pack of signs (8 dims per byte), and **the query is quantized into signed integers of `BITS` bits** (default 8) and combined with the data bits to produce the final dot. The specific way this is computed efficiently on CPU is the topic of the separate post on SIMD optimizations; here all that matters is one thing: **the query bit width is a free parameter, which we can dial without changing the storage format at all.**
+First, the context. At 1-bit storage the codebook is just two points `±c`, where `c = sqrt(2/π) ≈ 0.798` (Lloyd-Max for N(0, 1)) — meaning the codebook index *is* the sign bit of the stored coordinate. The storage layout and the scoring kernel at this bit width I take directly from [**RaBitQ**](https://arxiv.org/abs/2405.12497), unmodified: on the data side it's a dense pack of signs (8 dims per byte, bit-plane layout at 128 dims per 16-byte chunk); the query is quantized to `B` bits per coordinate and transposed into `B` bit-planes — one plane per query bit. In that layout the dot product collapses into one `AND`+popcount per plane, weighted by `2^b`. This is **RaBitQ's direct contribution to Qdrant's 1-bit path** — the TurboQuant paper itself adds nothing 1-bit-specific beyond the Lloyd-Max codebook with two centroids, and the fast implementation of that case comes from RaBitQ.
+
+The specific SIMD machinery (how `AND`+popcount maps to AVX-512/NEON instructions) is the topic of the separate post on SIMD optimizations; here all that matters is one thing: **the query bit width `B` is a free parameter, which we can dial without changing the storage format at all.**
 
 The key point: at 1-bit storage **the data side has the minimum possible resolution** — a single sign bit. That means the precision of asymmetric scoring is bottlenecked by **the query side**. At 2 and 4 bits the data itself carries enough resolution, and the noise of an 8-bit query gets lost in the centroid-quantization noise. At 1 bit it's not so: each per-coordinate dot is effectively `q_i · sign(x_i)`, and any error in `q_i` goes **directly** into the final score, with no amortization by data noise.
 
@@ -462,13 +468,21 @@ This doesn't prevent you from using MSE TurboQuant if L1 is your metric — but 
 
 ## 10. Conclusion
 
-TurboQuant is a beautiful algorithm, and the MSE variant in particular fits a vector database really well. But between "the algorithm from the paper" and "a production-grade implementation in Qdrant" there's a gap, and we tried to close it with several extensions:
+TurboQuant is a beautiful algorithm, and the MSE variant in particular fits a vector database really well. But between "the algorithm from the paper" and "a production-grade implementation in Qdrant" there's a gap — and the honest way to describe what closes it is as a **hybrid of TurboQuant and [RaBitQ (Gao & Long, SIGMOD 2024)](https://arxiv.org/abs/2405.12497)**, with one product-level extension of my own on top.
 
-- **Renormalization** through a stored centroid-norm kills quantization shrinkage without QJL and without doubling the scoring cost. A simple trick from llama-turbo-quant that alone delivers +9–15pp recall on anisotropic datasets at 4 bits.
-- **Hadamard rotation** in our triple (permute + WHT) form with reversible-LCG permutations — fully pure, reversible, non-persistent — gives us quality close to a random orthogonal rotation at O(D log D) and zero metadata.
-- **Anisotropy compensation** via per-coord shift+scale offloaded onto the query side — free at compute, noticeable at recall on anisotropic embeddings. On datasets with no anisotropy it collapses to identity by construction and adds no noise.
-- **P-Square** calibration through empirical per-coord quantiles, anchored to the codebook boundaries — on ideally normal data it's the identity, on anything else it produces a correct shift+scale without distributional assumptions.
-- **Wide query** for 1-bit centroids in the anisotropy-compensation mode recovers recall that would otherwise be lost to rounding noise in the lower end of the 8-bit range.
-- **L2 and unnormalized dot** we pulled outside the unit sphere on which the algorithm formally lives, at a cost of `+4` bytes per vector for the stored length. L1 doesn't yield to extension (rotation doesn't preserve L1) — and that's an honest limitation; we don't recommend TQ for L1 in production.
+**The hybrid foundation.** This is where most of the recall actually lives:
+
+- **Lloyd-Max codebook + 2/4-bit integer SIMD scoring** — from TurboQuant.
+- **Length renormalization via a stored centroid-norm** — from RaBitQ. Closes the shrinkage gap without QJL; alone it delivers +9–15pp recall on anisotropic datasets at 4 bits.
+- **The entire 1-bit path** (dense pack of signs + bit-plane `AND`+popcount scoring) — from RaBitQ. At 1 bit the algorithm reduces to pure RaBitQ; TurboQuant doesn't contribute anything 1-bit-specific.
+
+**My one product-impacting extension.** Per-coordinate **anisotropy compensation** via `(shift, scale)` offloaded onto the query side — free at compute, but real points of recall on anisotropic embeddings, and identity-by-construction on isotropic ones (so it never makes things worse). This is the only thing in the post that, by itself, moves the recall curve on real production data.
+
+**Engineering polish that makes the hybrid land in production but doesn't move recall on its own.** Worth mentioning so the post stands on its own, but I want to be honest that none of these are product-level innovations:
+
+- A **pure reversible Hadamard rotation** built from LCG + Fisher-Yates permutations — chosen to keep zero rotation metadata on disk. A nicer engineering solution to a problem any rotation-based quantizer faces.
+- **P-Square calibration** — the mechanism through which anisotropy compensation gets its `(shift, scale)` without assuming a Gaussian distribution.
+- **Wide query for 1-bit with compensation** — a small fix for a rounding edge case.
+- **L2 and unnormalized dot** off the unit sphere, at the cost of `+4` bytes per vector for the stored length. L1 doesn't yield to extension (rotation doesn't preserve L1) — an honest limitation; for L1 don't use TQ in production.
 
 The implementation is open and lives in the Qdrant repository — the production Rust code in [`lib/quantization/src/turboquant/`](https://github.com/qdrant/qdrant), and a maximally-readable Python reference (same set of algorithmic tricks, no SIMD scaffolding) in a separate repo: [turboquant-qdrant-showcase](https://github.com/IvanPleshkov/turboquant-qdrant-showcase); you can reproduce the recall table from there with a single command. If anything is unclear or interesting — drop me a line, happy to discuss.
